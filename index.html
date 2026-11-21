@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SkillForge — Deep Agent Skill Builder</title>
+<meta name="theme-color" content="#0b0d12">
+<meta name="description" content="Turn a short brief into a deep, expert-grade agent skill (SKILL.md).">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="SkillForge">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%237c5cff'/><stop offset='1' stop-color='%2300d4b4'/></linearGradient></defs><rect width='64' height='64' rx='14' fill='url(%23g)'/><path d='M20 42l12-24 12 24M25 34h14' stroke='white' stroke-width='5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
 <style>
 :root{
@@ -263,7 +270,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding:16px 10px 26p
 
 <script>
 "use strict";
-const VERSION = "v1.0.0";
+const VERSION = "v1.1.0";
 
 /* ============================================================
    PROMPTS — the "deep thinking" engine
@@ -976,6 +983,9 @@ function init(){
   $("brief").addEventListener("keydown",e=>{ if((e.ctrlKey||e.metaKey)&&e.key==="Enter") forge(); });
 }
 init();
+if("serviceWorker" in navigator && (location.protocol==="https:"||location.hostname==="localhost")){
+  window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
+}
 
 /* expose pure helpers for testing */
 window.__SF={parseFiles,parseCritique,md,makeZip,crc32,ensureFrontmatter,getFrontmatter,slugify,masterPrompt};
