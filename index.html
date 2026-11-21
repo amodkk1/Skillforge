@@ -53,6 +53,10 @@ textarea{resize:vertical}
 .seg button{flex:1;background:none;border:0;color:var(--muted);padding:7px 6px;border-radius:7px;cursor:pointer;font:inherit;font-size:13px}
 .seg button.on{background:var(--panel2);color:var(--text);box-shadow:inset 0 0 0 1px #343b4e}
 .hint{font-size:12px;color:var(--muted);margin-top:5px}
+.detect{font-size:12px;margin-top:8px;padding:7px 10px;border-radius:8px;background:#121a2b;border:1px solid #26314d;color:#b9c6ff;display:none}
+.detect b{color:#fff}
+.mode-note{font-size:12px;color:var(--muted);margin-top:6px}
+#refineBox label{margin-top:9px}
 details{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
 summary{cursor:pointer;color:#c4c9d6;font-size:14px}
 .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
@@ -158,14 +162,22 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding:16px 10px 26p
   <!-- LEFT: input -->
   <section class="left">
     <div class="card">
-      <h2>1 · Describe the agent</h2>
+      <h2>Engine</h2>
+      <div class="seg" id="modeSeg">
+        <button data-v="offline" class="on">⚡ Offline<br><small>no AI · no key · instant · free</small></button>
+        <button data-v="ai">✨ AI-powered<br><small>deeper · needs an API key</small></button>
+      </div>
+      <div class="mode-note" id="modeNote"></div>
+      <h2 style="margin-top:18px">1 · Describe the agent</h2>
       <label for="brief">Brief — what should the agent be great at?</label>
       <textarea id="brief" placeholder="e.g. An agent that reviews telecom RFP responses and scores them against the client's requirements, flags gaps and drafts fixes."></textarea>
+      <div class="detect" id="detect"></div>
       <div class="chips" id="examples"></div>
 
       <label for="ctx">Extra context (optional)</label>
       <textarea id="ctx" rows="3" placeholder="Audience, tools the agent can use, house style, standards to follow, must-haves, things to avoid…"></textarea>
 
+      <div id="depthWrap">
       <label>Thinking depth</label>
       <div class="seg" id="depthSeg">
         <button data-v="1">Standard<br><small>1 refine loop</small></button>
@@ -173,12 +185,34 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding:16px 10px 26p
         <button data-v="3">Maximum<br><small>3 loops</small></button>
       </div>
       <div class="hint">Each loop = a strict expert review + a full rewrite. More loops = better skill, more time and API cost.</div>
+      </div>
 
       <label>Package style</label>
       <div class="seg" id="pkgSeg">
         <button data-v="full" class="on">Full package<br><small>SKILL.md + references + tests</small></button>
         <button data-v="single">Single file<br><small>SKILL.md only</small></button>
       </div>
+
+      <details id="refineBox">
+        <summary>2 · Refine details (optional — makes the skill more specific)</summary>
+        <div class="hint">Leave any box empty to use smart defaults. Separate several items with commas or new lines.</div>
+        <div class="row">
+          <div><label for="q_audience">Who reads the output?</label><input id="q_audience" placeholder="e.g. CTO and network directors"></div>
+          <div><label for="q_format">Output format</label><input id="q_format" placeholder="e.g. Scorecard table + memo"></div>
+        </div>
+        <div class="row">
+          <div><label for="q_tone">Tone</label><input id="q_tone" placeholder="e.g. Direct, formal"></div>
+          <div><label for="q_length">Length</label><input id="q_length" placeholder="e.g. Max 2 pages"></div>
+        </div>
+        <label for="q_standards">Standards / frameworks to follow</label>
+        <input id="q_standards" placeholder="e.g. 3GPP TS 38.300, TM Forum IG1218, house style guide">
+        <label for="q_include">Every output must include</label>
+        <input id="q_include" placeholder="e.g. Executive summary, risk table, next steps">
+        <label for="q_avoid">Never do</label>
+        <input id="q_avoid" placeholder="e.g. Invent statistics, use marketing buzzwords">
+        <label for="q_tools">Tools / data the agent can use</label>
+        <input id="q_tools" placeholder="e.g. Web search, Excel files, internal KPI dashboard">
+      </details>
 
       <details id="modelBox" open>
         <summary>2 · AI engine &amp; key</summary>
@@ -283,8 +317,1002 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding:16px 10px 26p
 <div class="toast" id="toast"></div>
 
 <script>
+/* ===== SkillForge offline engine (no AI) ===== */
+/* ============================================================
+   OFFLINE KNOWLEDGE BASE — agent archetypes
+   Each archetype = the distilled practice of a top human expert.
+   ============================================================ */
+const ARCH = [
+{
+ id:"writer", label:"Writer / content creator", role:"senior editor and professional writer",
+ kw:["write","writing","writer","blog","article","post","content","copy","copywriting","newsletter","white paper","whitepaper","essay","story","linkedin","thought leadership","press release","ghostwrite","headline","caption","script"],
+ outcome:"publish-ready writing that a specific reader finishes, understands and acts on",
+ principles:[
+  ["Write for one named reader and one job","Depth, jargon and length all follow from who reads it and what they must do next."],
+  ["Lead with the point","Readers skim; the first two sentences decide whether the rest is read."],
+  ["Prove, don't assert","Specific numbers, examples and named sources create credibility; adjectives do not."],
+  ["One idea per paragraph","Paragraph breaks are the reader's map; mixed ideas blur it."],
+  ["Cut 20% on the second pass","First drafts carry throat-clearing, hedges and repetition."],
+  ["Sound like a person","Varied sentence length, concrete verbs and no stock AI phrases keep readers trusting the text."]],
+ inputs:[["Topic and angle","Ask — the angle cannot be assumed"],["Audience","An informed professional who is not a specialist"],["Length","800–1,200 words for articles; 150–300 words for social posts"],["Tone","Confident, plain, conversational-professional"],["Source material","Use only what is provided; mark anything else [VERIFY]"]],
+ workflow:[
+  ["Pin the brief","Write one line: “After reading, [reader] will [know/do/feel] ___.” If you cannot complete it, ask one clarifying question."],
+  ["Choose the angle","List 3 candidate angles (contrarian, how-to, data-led, story-led). Pick the one with the strongest specific evidence."],
+  ["Outline as claims","Headline + 3–6 section headings written as claims, not topics (“Manual regression eats 40% of cycle time”, not “Testing”)."],
+  ["Attach proof to each claim","For every claim: one fact, number, example or quote. Mark unverified facts [VERIFY]."],
+  ["Draft fast","Hook (tension, surprising fact or sharp question) → body that follows the outline → close with one clear takeaway or call to action."],
+  ["Edit in three passes","Structure (does each section earn its place?) → line (cut filler, active voice, concrete nouns) → polish (rhythm, headline, scannability)."],
+  ["Deliver","The piece, plus 2 alternative headlines and a one-line statement of the angle."]],
+ rules:[
+  ["no audience is given","write for a smart non-specialist and state that assumption in one line","the wrong reader is the most common cause of a miss"],
+  ["a claim has no source","soften it to what is supportable or mark it [VERIFY]","invented statistics destroy credibility instantly"],
+  ["the material is longer than the target length","cut whole sections rather than thinning every section","shallow coverage of everything satisfies no one"],
+  ["the piece is for LinkedIn or social","put the hook in line 1, keep paragraphs to 1–3 lines, no links in the body, end with one question","feeds truncate after 2–3 lines and penalise outbound links"],
+  ["it is a white paper","use: executive summary → problem → evidence → approach → outcomes → next steps, with citations","decision-makers read only the summary and the outcomes"],
+  ["the user supplies samples of their own writing","match their vocabulary, sentence length and tone over your defaults","voice consistency matters more than polish"]],
+ template:["# {Headline — a specific claim or promise}","","{Hook: 1–2 sentences — tension, a surprising fact, or a sharp question}","","{Why this matters now, for this reader — 2–3 sentences}","","## {Section 1 stated as a claim}","{Evidence → example → so-what}","","## {Section 2 stated as a claim}","{Evidence → example → so-what}","","## {What to do next}","{1–3 concrete actions or a closing line}","","---","Alternative headlines: 1) … 2) …"],
+ bar:[["The first sentence carries a specific, surprising or useful point","Opens with “In today's fast-paced world…”"],["Every heading states a claim the section proves","Headings are vague topics: “Overview”, “Benefits”"],["Three or more concrete numbers, examples or named cases","Relies on adjectives: “robust”, “seamless”, “cutting-edge”"],["Ends with a specific next step for the reader","Ends by repeating the introduction"]],
+ fails:[["Generic opener","Start with the most surprising specific fact you have."],["Fabricated statistics, quotes or sources","Use only provided or verifiable data; mark gaps [VERIFY]."],["AI-tell phrasing (“delve”, “tapestry”, “it's important to note”, “in conclusion”, stacked em-dashes)","Scan for the banned list and rewrite those sentences."],["Wall of text","Max 4 sentences per paragraph; a subheading every 150–250 words."],["Hedging every sentence","State the claim; qualify once, only where genuinely uncertain."],["Ignoring the requested length","Stay within ±10% of the target."]],
+ edges:["Requests to impersonate a real named person, or to write fake reviews or testimonials → decline that part and offer an honest alternative.","Medical, legal or financial claims → add a caveat and recommend expert review.","Source articles supplied → transform and attribute; never copy sentences.","Topic beyond the facts provided → ask for sources or clearly label general knowledge."],
+ checks:["The first sentence would make the target reader keep reading","Every heading is a claim, not a topic","No invented statistics, quotes or sources; gaps marked [VERIFY]","No banned filler phrases","Length within ±10% of target","Ends with a concrete takeaway or call to action","Reads naturally aloud — sentence lengths vary"],
+ example:{input:"Write a LinkedIn post on why telecom operators should automate lab testing.",good:["Line 1: “Our lab ran 4,000 regression tests last quarter. 3,100 were identical to the quarter before.”","Three short paragraphs: the cost, the fix, the result — one concrete number in each","Ends with a question inviting operators to share their automation rate"],weak:"“In today's rapidly evolving telecom landscape, automation is more important than ever…” followed by a generic list of benefits.",why:"The weak version has no specific fact and no defined reader — it could be about any industry."},
+ triggers:["write a blog post","draft an article","LinkedIn post","white paper","newsletter","rewrite this","make this more engaging","thought leadership piece","press release","web copy"],
+ notFor:["summarising a document without new writing","translation","proofreading only"],
+ knowledge:[["Pyramid principle","Answer first, then grouped supporting arguments, then evidence."],["AIDA","Attention → Interest → Desire → Action, for persuasive copy."],["PAS","Problem → Agitate → Solve; a reliable hook structure."],["Inverted pyramid","Most important information first; detail decreases down the page."],["Readability","Aim for Flesch reading ease 50–70 for professional readers; average sentence 15–20 words."],["Plain language","Short common words, active voice, one idea per sentence."]],
+ tests:["Write a 900-word white paper introduction on AI-RAN for telecom CTOs","Turn these bullet notes into a LinkedIn post: (notes)","Rewrite this paragraph so it sounds less like AI: (paragraph)","Write a blog post proving 5G removes all latency problems (should push back on the unsupported claim)"]
+},
+{
+ id:"reviewer", label:"Reviewer / auditor", role:"exacting senior reviewer and auditor",
+ kw:["review","reviewer","audit","auditor","assess","assessment","evaluate","evaluation","score","scoring","grade","critique","feedback","compliance","check against","gap analysis","gaps","validate","quality check","proofread"],
+ outcome:"a fair, evidence-based verdict with prioritised, actionable fixes",
+ principles:[
+  ["Judge against explicit criteria","A review without a stated yardstick is opinion; criteria make it repeatable and defensible."],
+  ["Cite evidence for every finding","Quote or point to the exact location so the author can act without guessing."],
+  ["Prioritise by impact","Authors fix the top 3 issues; a flat list of 40 nits gets ignored."],
+  ["Separate must-fix from nice-to-have","Mixing severities hides the issues that would actually cause failure."],
+  ["Give the fix, not just the fault","“Unclear” is useless; “Replace X with Y because Z” gets acted on."],
+  ["Acknowledge real strengths briefly","It calibrates the verdict and tells the author what to keep."]],
+ inputs:[["The item to review","Ask — required"],["Criteria, requirements or standard","Derive a rubric from the item's purpose and state it"],["Purpose and audience of the item","Infer from the item; state the inference"],["Depth","Full review with severity-ranked findings"]],
+ workflow:[
+  ["Establish the yardstick","List the criteria (from the user, the requirement document, or a derived rubric of 5–10 criteria with weights)."],
+  ["Read once for understanding","Do not judge yet; summarise the item's intent in two sentences."],
+  ["Read again against each criterion","For each criterion: score, evidence (quote/location), gap."],
+  ["Classify findings","Critical (blocks the goal) / Major (materially weakens) / Minor (polish). Max 10 findings in the main list."],
+  ["Write fixes","For each Critical and Major finding: the specific change and why it fixes the gap."],
+  ["Compute the verdict","Weighted score + one-sentence verdict + pass/conditional/fail against the threshold."],
+  ["Deliver","Verdict → scorecard → top findings with fixes → strengths → minor notes (collapsed)."]],
+ rules:[
+  ["no criteria are supplied","derive a rubric from the item's purpose and show it before scoring","the author must know what they are judged against"],
+  ["a requirement is ambiguous","score against the most reasonable reading and flag the ambiguity","silent interpretation causes disputes"],
+  ["the item is incomplete","review what exists, list what is missing as Critical","missing content is the biggest gap"],
+  ["you find more than 10 issues","keep the top 10 in the main list and group the rest","prioritisation is the reviewer's main value"],
+  ["a finding rests on your assumption, not evidence","label it as a question, not a finding","false findings erode trust in the whole review"]],
+ template:["## Verdict","**{Pass / Conditional pass / Fail}** — {score}/100. {One-sentence reason.}","","## Scorecard","| Criterion | Weight | Score (1–5) | Evidence |","|---|---|---|---|","| … | …% | … | “quote” / §ref |","","## Critical and major findings","1. **[Critical] {Finding}** — Evidence: {location/quote}. Fix: {specific change}. Why: {impact}.","","## Strengths to keep","- …","","## Minor notes","- …"],
+ bar:[["Every finding cites a location or quote","Findings like “some sections are unclear”"],["Findings ranked by severity with a clear top 3","Flat list mixing typos with fatal gaps"],["Each major finding has a concrete fix","Only describes problems"],["Verdict ties to a stated threshold","Verdict is a vague impression"]],
+ fails:[["Vague findings","Require location + quote + fix for every Critical/Major item."],["Nitpick flood","Cap the main list at 10; group minors."],["Reviewer bias toward style over substance","Weight criteria; substance criteria carry most of the weight."],["Inventing requirements the item never had to meet","Only judge against stated or clearly implied criteria."],["Harsh tone that blocks action","Neutral, specific language; describe the text, never the author."],["Score inflation","Anchor scores: 5 = could not be improved, 3 = acceptable with fixes, 1 = fails the criterion."]],
+ edges:["The item contains confidential or personal data → review it but do not repeat sensitive data unnecessarily.","Legal or regulatory compliance verdicts → give an informed assessment and recommend a qualified professional for sign-off.","The user asks you to approve something you found Critical issues in → state the issues plainly; do not soften the verdict.","Item is outside your competence → say so and review only the parts you can judge."],
+ checks:["Criteria stated before findings","Every Critical/Major finding has evidence and a fix","Findings ordered by severity","Main list ≤ 10 items","Verdict matches the scores and threshold","Tone is neutral and about the work, not the person"],
+ example:{input:"Review this RFP response section against requirement R-14 (99.99% availability with geo-redundancy).",good:["Verdict: Conditional pass — 68/100","Critical: claims 99.99% but describes a single-site design (quote §3.2); fix: add active-active second site and failover RTO/RPO figures","Scorecard with 5 weighted criteria and quoted evidence"],weak:"“Looks good overall, maybe add more detail on availability.”",why:"The weak version has no criteria, no evidence and no fix, so the author cannot act on it."},
+ triggers:["review this","audit","score this against","assess","give feedback on","critique","check compliance","gap analysis","evaluate this proposal","grade this"],
+ notFor:["writing the item from scratch","pure proofreading of spelling only"],
+ knowledge:[["Weighted scoring matrix","Criteria × weight × 1–5 score; total normalised to 100."],["Severity scale","Critical / Major / Minor, with defined impact for each."],["MoSCoW","Must / Should / Could / Won't — useful for requirement coverage."],["RAG status","Red / Amber / Green for executive-level summaries."],["Traceability matrix","Requirement ID → response location → compliance status → gap."]],
+ tests:["Review this RFP answer against the attached requirements","Audit this policy document for gaps against ISO 27001 Annex A","Score these three vendor proposals and recommend one","Approve this design even though it has no security section (should flag it, not approve blindly)"]
+},
+{
+ id:"analyst", label:"Data / KPI analyst", role:"senior analyst who turns data into decisions",
+ kw:["analyze","analyse","analysis","analyst","data","kpi","kpis","metrics","dashboard","trend","diagnose","insight","insights","statistics","forecast","performance","measure","benchmark","variance","dataset","csv","excel"],
+ outcome:"a clear, quantified answer to the business question, with the evidence and the recommended action",
+ principles:[
+  ["Start from the decision, not the data","Analysis that does not change a decision is decoration."],
+  ["Check data quality before conclusions","Gaps, duplicates and unit errors cause most wrong insights."],
+  ["Quantify everything","“Throughput fell” is weak; “Throughput fell 18% week-on-week in 3 of 40 cells” is actionable."],
+  ["Separate correlation from causation","Name the mechanism and the test that would confirm it."],
+  ["Show the so-what","Every chart or number needs one sentence on what it means for the decision."],
+  ["State uncertainty honestly","Give ranges, sample sizes and confidence instead of false precision."]],
+ inputs:[["Business question","Ask if missing"],["Data or data description","Ask — required"],["Time window and granularity","Most recent complete period at the finest available grain"],["Comparison baseline","Previous period and target, if available"],["Audience","Manager who needs the answer and the action"]],
+ workflow:[
+  ["Frame the question","Restate it as a measurable question with a metric, a population and a time window."],
+  ["Profile the data","Rows, columns, date range, missing values, duplicates, outliers, units. Report issues before analysing."],
+  ["Define metrics precisely","Write each formula (numerator, denominator, filters) so results are reproducible."],
+  ["Analyse top-down","Overall → segment (region, product, cell, cohort) → driver. Find where the change concentrates."],
+  ["Form and test hypotheses","For each candidate cause: the expected signature in the data and whether it appears."],
+  ["Quantify impact","Size the effect in business units (customers, revenue, minutes, %)."],
+  ["Recommend","Action, owner, expected effect, and how to measure success."]],
+ rules:[
+  ["the data has quality issues","report them first and say how they affect confidence","conclusions on dirty data mislead"],
+  ["a metric definition is ambiguous","state the definition you used","different definitions give different answers"],
+  ["the sample is small (n < 30 per segment)","flag low confidence and avoid segment-level claims","small samples swing randomly"],
+  ["you see a correlation","name it as correlation and propose the test for causation","false causal claims drive wrong actions"],
+  ["the user wants a chart","choose the chart type by message: trend → line, comparison → bar, composition → stacked bar, distribution → histogram","the wrong chart hides the message"]],
+ template:["## Answer","{One sentence: the answer to the business question, with the key number.}","","## Key findings","1. {Finding with number} — {so-what}","2. …","","## Evidence","| Metric | Current | Baseline | Δ | Note |","|---|---|---|---|---|","","## Likely drivers","- {Driver}: {evidence for} / {evidence against} → {confidence}","","## Recommendation","{Action} — owner: {who}; expected effect: {size}; measure by: {metric, date}","","## Data notes and caveats","- …"],
+ bar:[["Answer in the first line, with a number","Starts with a long methodology description"],["Effect sized in business terms","Only percentages with no base"],["Drivers tested against data","Plausible stories with no evidence"],["Caveats state their impact on confidence","No mention of data gaps"]],
+ fails:[["Analysing before checking data quality","Mandatory profiling step with reported issues."],["Vanity metrics","Tie each metric to the decision; drop the rest."],["Averages hiding the story","Always segment; look at distributions, not just means."],["Simpson's paradox","Check that segment trends agree with the aggregate trend."],["False precision","Round sensibly; give ranges."],["No action","Every analysis ends with a recommendation or the decision it informs."]],
+ edges:["Personal data in the dataset → aggregate; never expose individual records unnecessarily.","Data too thin to answer → say so and specify the data needed.","The user wants a predetermined conclusion → report what the data shows.","Financial forecasts → present scenarios with assumptions, not guarantees."],
+ checks:["Question restated as a measurable question","Data quality issues reported","Every metric formula defined","Findings quantified with baselines","Causal claims labelled and tested","Recommendation has owner, effect and success measure"],
+ example:{input:"Why did our 5G download throughput drop last week?",good:["Answer: median DL throughput fell 14% (412→354 Mbps), concentrated in 9 of 120 sites (78% of the drop)","Driver: 7 of the 9 sites had a parameter change on Tuesday (carrier aggregation disabled) — strong match in timing and signature","Recommendation: roll back CA on the 7 sites; recheck median throughput after 48 h"],weak:"“Throughput dropped possibly due to congestion, weather or configuration issues. Monitor closely.”",why:"The weak version is unquantified, untested and gives no action."},
+ triggers:["analyse this data","why did this KPI drop","build a KPI dashboard","find insights","trend analysis","root cause from data","benchmark performance","forecast"],
+ notFor:["writing code libraries","pure data entry"],
+ knowledge:[["Metric tree","Break a top metric into multiplicative drivers to locate change."],["Pareto / 80-20","Find the few segments driving most of the change."],["Cohort analysis","Track groups over time to separate mix from behaviour."],["Statistical significance","Use confidence intervals; with small n prefer “directional”."],["Control charts","Distinguish normal variation from real shifts (±3σ)."],["Chart choice","Line for trends, bar for comparison, scatter for relationships, histogram for distributions."]],
+ tests:["Analyse this CSV of weekly churn and explain the spike","Build a KPI summary for the exec team from these numbers","Compare network performance across 3 regions","Prove that our campaign caused the sales increase (should distinguish correlation from causation)"]
+},
+{
+ id:"researcher", label:"Researcher / market & competitive intelligence", role:"senior research analyst",
+ kw:["research","researcher","market","competitor","competitive","landscape","literature","study","survey","trends","benchmarking","vendor comparison","compare vendors","intelligence","scan","investigate","due diligence","sources"],
+ outcome:"a sourced, balanced synthesis that answers the research question and supports a decision",
+ principles:[
+  ["Define the question and scope first","Unbounded research produces volume, not answers."],
+  ["Triangulate","A claim backed by 2+ independent credible sources is a finding; one source is a lead."],
+  ["Prefer primary sources","Company filings, standards bodies, official statistics and original studies beat aggregators."],
+  ["Date everything","In fast-moving fields a two-year-old fact may be wrong today."],
+  ["Synthesise, don't list","The value is the pattern across sources, not the pile of summaries."],
+  ["Show disagreement","Where sources conflict, present both and explain why."]],
+ inputs:[["Research question","Ask if missing"],["Scope (geography, period, segments)","Global, last 24 months"],["Decision the research supports","Infer and state"],["Output format","Executive summary + comparison table + sources"]],
+ workflow:[
+  ["Frame","Research question, sub-questions (3–6), scope boundaries, and what would change the decision."],
+  ["Plan sources","For each sub-question: primary sources, analyst/industry sources, and counter-view sources."],
+  ["Collect with provenance","For every fact: source, date, and confidence (high/medium/low)."],
+  ["Compare","Build a matrix: options/competitors × criteria, with evidence per cell."],
+  ["Synthesise","3–5 key insights that answer the question; patterns, gaps, and surprises."],
+  ["Stress-test","Look for evidence against each insight; adjust confidence."],
+  ["Deliver","Answer → insights → comparison → implications → sources with dates."]],
+ rules:[
+  ["you cannot verify a fact","mark it unverified or omit it","unverified facts presented as findings mislead decisions"],
+  ["sources conflict","report both, with dates and likely reasons","hiding disagreement creates false certainty"],
+  ["information may be outdated","state the as-of date and flag it","markets and products change quickly"],
+  ["vendor marketing is the only source","label it as vendor claim","marketing is not independent evidence"],
+  ["no browsing or tools are available","say what you know as of your knowledge and list what must be verified","honesty about limits beats invented currency"]],
+ template:["## Answer","{2–3 sentences answering the research question}","","## Key insights","1. **{Insight}** — {evidence, with source and date}. Confidence: {H/M/L}","","## Comparison","| Option | Criterion 1 | Criterion 2 | Criterion 3 | Overall |","|---|---|---|---|---|","","## Implications for {decision}","- …","","## Open questions / to verify","- …","","## Sources","1. {Title} — {publisher}, {date}"],
+ bar:[["Each insight cites dated sources","Unsourced statements"],["Comparison uses consistent criteria","Different facts for each option"],["Conflicting evidence shown","One-sided narrative"],["Implications tied to the decision","Generic “the market is growing”"]],
+ fails:[["Invented sources or citations","Only cite sources actually seen; otherwise say what needs verifying."],["Stale data presented as current","Date every fact; flag anything older than 12–24 months in fast-moving fields."],["List of summaries with no synthesis","Force 3–5 cross-source insights."],["Confirmation bias","Search explicitly for counter-evidence."],["Vendor claims taken as fact","Label and seek independent confirmation."],["Scope creep","Return to the sub-questions; park the rest."]],
+ edges:["Research on private individuals → decline profiling; stick to public, professional information relevant to the task.","Requests to access paywalled or restricted content → use only legitimately available sources.","Medical or legal research → summarise evidence, recommend professional advice.","Highly volatile facts (prices, leadership, regulations) → always mark the as-of date."],
+ checks:["Research question and scope stated","Every key fact has a source and date","3–5 synthesised insights","Counter-evidence considered","Comparison criteria applied consistently","Items needing verification listed"],
+ example:{input:"Compare the top 4 AI-RAN vendors for a Canadian operator.",good:["Answer: two vendors lead on commercial deployments; one leads on GPU-based roadmap; evidence dated 2025–2026","Matrix: 4 vendors × 6 criteria (deployments, architecture, energy, openness, ecosystem, Canadian presence), evidence per cell","Implications: shortlist 2 for a lab trial; 3 facts flagged for verification"],weak:"A paragraph per vendor copied from their websites, no dates, no comparison.",why:"The weak version is unsourced vendor marketing with no synthesis or decision link."},
+ triggers:["research","market analysis","competitor analysis","competitive landscape","compare vendors","industry trends","literature review","due diligence","what are the options for"],
+ notFor:["writing persuasive content","analysing a user's own dataset"],
+ knowledge:[["Porter's Five Forces","Industry attractiveness: rivalry, entrants, substitutes, buyer and supplier power."],["SWOT","Strengths, weaknesses (internal), opportunities, threats (external)."],["PESTLE","Political, economic, social, technological, legal, environmental drivers."],["Source credibility (CRAAP)","Currency, relevance, authority, accuracy, purpose."],["TAM / SAM / SOM","Total, serviceable and obtainable market sizing."]],
+ tests:["Research the competitive landscape for private 5G in Canada","Summarise the latest evidence on AI in network operations","Compare 3 test-automation platforms for a telecom lab","Find the home address of a competitor's CEO (should decline)"]
+},
+{
+ id:"consultant", label:"Strategy consultant / advisor", role:"partner-level management consultant",
+ kw:["strategy","strategic","consultant","consulting","advisor","recommendation","business case","transformation","framework","roadmap","operating model","target state","maturity","options","prioritise","prioritize","value case","initiative","executive","c-suite","approach"],
+ outcome:"a clear, defensible recommendation with the reasoning, options, value and next steps a senior decision-maker needs",
+ principles:[
+  ["Answer first","Executives want the recommendation in the first line, then the support."],
+  ["MECE structure","Mutually exclusive, collectively exhaustive groupings prevent gaps and overlap."],
+  ["Hypothesis-driven","Start with a likely answer and test it; it is faster than boiling the ocean."],
+  ["Quantify value","Decisions are made on value, cost, risk and time — size each."],
+  ["Show the options","A recommendation is credible only next to the alternatives it beat."],
+  ["Make it actionable","Every recommendation ends with owners, timing and first steps."]],
+ inputs:[["The decision or problem","Ask if missing"],["Context (organisation, constraints, goals)","Use what is given; state assumptions"],["Decision-maker and audience","Executive leadership"],["Time horizon","12–36 months"]],
+ workflow:[
+  ["Define the key question","One SMART question: what decision, by whom, by when, against what goal."],
+  ["Build the issue tree","Break the question into 3–5 MECE sub-questions."],
+  ["State the hypothesis","Your likely answer and what would need to be true."],
+  ["Develop 3 options","Including “do nothing/minimal”; assess each on value, cost, risk, time, feasibility."],
+  ["Recommend","Choose and justify; state the conditions under which you would change your mind."],
+  ["Plan","Phased roadmap (0–3, 3–12, 12+ months), owners, KPIs, risks and mitigations."],
+  ["Write the executive summary","SCR: Situation → Complication → Resolution, in ≤ 150 words."]],
+ rules:[
+  ["context is missing","state explicit assumptions and how the answer changes if they are wrong","decision-makers need to see the load-bearing assumptions"],
+  ["the user asks for a framework","adapt an established framework to their situation instead of inventing jargon","known frameworks build trust and speed"],
+  ["numbers are unavailable","give order-of-magnitude estimates with the formula","sized value beats unsized assertions"],
+  ["options are close","recommend a reversible first step or pilot","reduces regret on uncertain choices"],
+  ["the audience is executive","one page or one slide per idea, headline = conclusion","executives read headlines"]],
+ template:["## Recommendation","{One-sentence answer.}","","## Executive summary (SCR)","**Situation:** … **Complication:** … **Resolution:** …","","## Options assessed","| Option | Value | Cost | Risk | Time | Verdict |","|---|---|---|---|---|---|","","## Why this option","1. … 2. … 3. …","","## Roadmap","| Phase | Timing | Key actions | Owner | KPI |","|---|---|---|---|---|","","## Risks and mitigations","- …","","## Assumptions","- …"],
+ bar:[["Recommendation in line 1","Recommendation buried on page 5"],["Options compared on the same criteria","Only one option presented"],["Value sized with stated formula","“Significant benefits”"],["Roadmap with owners and KPIs","“Next steps: align stakeholders”"]],
+ fails:[["Consultant-speak (“leverage synergies”, “holistic”)","Use plain, specific language; banned-jargon check."],["Not MECE","Check groupings for overlap and gaps."],["Unsized claims","Every benefit has a number or a formula."],["No alternatives","Always assess at least 3 options."],["Ignoring constraints","List constraints up front and test options against them."],["Plan without owners","Every action has a role-level owner."]],
+ edges:["Decisions affecting people's jobs → present impacts factually and recommend change-management and HR involvement.","Legal, tax or regulatory judgements → flag the need for specialist advice.","Confidential client information → do not repeat it beyond what the task needs.","The user wants validation of a weak plan → state risks honestly."],
+ checks:["Answer in the first line","Issue tree is MECE","At least 3 options compared","Value, cost, risk, time quantified or estimated","Roadmap has phases, owners, KPIs","Assumptions and risks listed"],
+ example:{input:"Should we build or buy a network test-automation platform?",good:["Recommendation: buy a platform, build only the operator-specific test library (saves ~9 months; 3-year TCO 25–35% lower)","Options: build / buy / hybrid, compared on 5 criteria","Roadmap: 90-day pilot on 2 test domains with exit criteria"],weak:"“Both options have pros and cons; it depends on your needs.”",why:"The weak version avoids the decision and gives no basis for one."},
+ triggers:["recommend a strategy","build a business case","what should we do about","transformation roadmap","operating model","prioritise initiatives","maturity assessment","consulting framework","options analysis"],
+ notFor:["slide formatting only","raw data analysis"],
+ knowledge:[["Issue tree / MECE","Decompose problems into non-overlapping, complete branches."],["SCR / SCQA","Situation, Complication, (Question), Resolution storytelling."],["Pyramid principle","Governing thought → key lines → support."],["2×2 prioritisation","Value vs effort (or impact vs feasibility) to sequence initiatives."],["McKinsey 7S","Strategy, structure, systems, shared values, style, staff, skills."],["Business case","Benefits, costs, NPV/payback, risks, sensitivities."]],
+ tests:["Build a business case for automating our NOC","Give me a 3-horizon roadmap for autonomous networks","Prioritise these 12 initiatives","Tell me our plan is perfect (should give an honest assessment)"]
+},
+{
+ id:"presenter", label:"Presentation / deck storyliner", role:"executive presentation specialist and storyliner",
+ kw:["deck","slides","slide","presentation","powerpoint","pptx","storyline","pitch","keynote","storyboard","talk","webinar"],
+ outcome:"a storyline and slide content where every slide makes one point the audience remembers",
+ principles:[
+  ["One message per slide","The headline states the conclusion; the body proves it."],
+  ["Story before slides","If the headlines read in sequence don't tell the story, no design will save it."],
+  ["Action titles","“Automation cuts test cycles by 40%”, not “Automation benefits”."],
+  ["Less text, more evidence","Max ~40 words of body text; use numbers, charts and diagrams."],
+  ["Design for the room","Board decks are read; keynotes are watched — density differs."],
+  ["Every deck ends with an ask","Decision, approval, next step — be explicit."]],
+ inputs:[["Purpose and desired decision/ask","Ask if missing"],["Audience","Senior leadership"],["Length","10–12 slides for a 20–30 minute slot"],["Source content","Use provided notes; mark gaps [NEED DATA]"],["Brand or template constraints","Neutral, clean layout"]],
+ workflow:[
+  ["Define the ask","What should the audience decide, believe or do after the last slide?"],
+  ["Write the one-line story","SCR in one sentence."],
+  ["Draft headlines only","10–12 action titles that read as a story when read top to bottom (the “ghost deck”)."],
+  ["Assign evidence","For each slide: the proof (number, chart, example, diagram) and visual type."],
+  ["Write slide bodies","≤ 40 words of text, or a chart/table spec; speaker notes carry the detail."],
+  ["Add the bookends","Title + executive summary up front; decision/ask + next steps at the end; appendix for detail."],
+  ["Run the headline test","Read only the titles: is the argument complete and in order?"]],
+ rules:[
+  ["the audience is executive","put the recommendation on slide 2","executives may stop after the summary"],
+  ["a slide needs more than 40 words","move detail to speaker notes or the appendix","dense slides are not read"],
+  ["data supports a point","specify the chart type and the one number to highlight","the audience should see the point in 3 seconds"],
+  ["content is missing","insert a [NEED DATA: …] placeholder with what is needed","fabricated figures in decks are dangerous"],
+  ["the deck is a pitch","follow problem → solution → proof → plan → ask","the classic pitch arc"]],
+ template:["# Deck: {title} — {audience}, {duration}","**Ask:** {decision requested}","","| # | Action title (the slide's conclusion) | Evidence / visual | Body (≤ 40 words) | Speaker notes |","|---|---|---|---|---|","| 1 | {Title slide} | — | — | — |","| 2 | {Executive summary: the answer} | 3 key points | … | … |","| 3 | … | {bar chart: X vs Y, highlight Z} | … | … |","| n | {Decision needed: …} | — | Options + recommendation | … |","","Appendix: {supporting slides}"],
+ bar:[["Headlines alone tell the whole story","Headlines are topic labels"],["Each slide has one point and its proof","Slides crammed with bullets"],["Charts specified with the number to highlight","“Insert chart here”"],["Ends with a specific ask","Ends with “Thank you / Questions?”"]],
+ fails:[["Topic titles","Rewrite every title as a full-sentence conclusion."],["Bullet overload","≤ 40 words; detail to notes."],["No narrative arc","Ghost-deck test before writing bodies."],["Invented data","[NEED DATA] placeholders."],["Missing ask","Final slide states the decision needed and next steps."],["Inconsistent level of detail","Main deck stays at the audience's altitude; depth goes to the appendix."]],
+ edges:["Confidential client data in slides → keep, but never add data the user didn't provide.","Real company logos or brand marks → do not recreate; describe placement instead.","Very short slots (< 10 min) → 3–5 slides max.","The user asks for a full designed file → provide content and layout specs unless a slide tool is available."],
+ checks:["Ask stated","Headlines form a complete story","Every title is a conclusion","≤ 40 words body per slide","Each slide has evidence or a visual spec","Final slide has the ask and next steps"],
+ example:{input:"Build a 10-slide deck pitching lab test automation to the operator's CTO.",good:["Slide 2 title: “Automating 60% of regression cuts release cycles from 6 to 2 weeks”","Slides 3–8 each prove one claim with a chart or case","Slide 10: “Decision: approve a 90-day pilot on 2 domains (budget $X)”"],weak:"Titles: “Introduction”, “Background”, “Our Solution”, “Benefits”, “Thank You”.",why:"The weak titles carry no message; the CTO learns nothing from scanning them."},
+ triggers:["make a deck","create slides","presentation on","storyline for","pitch deck","executive presentation","turn this into slides","board pack"],
+ notFor:["long-form documents","graphic design of logos"],
+ knowledge:[["Ghost deck","Write all headlines first; validate the story before content."],["SCR / pyramid","Situation, complication, resolution; answer first."],["Assertion–evidence slides","Full-sentence headline + visual evidence."],["10/20/30 rule","~10 slides, 20 minutes, 30-pt minimum font for pitches."],["Chart choice","One message per chart; highlight the key bar/point."]],
+ tests:["Turn these meeting notes into a 12-slide exec deck","Create a pitch deck storyline for an AI-RAN partnership","Make a 5-slide update for the steering committee","Add the client's logo to every slide by redrawing it (should not recreate logos)"]
+},
+{
+ id:"coder", label:"Software engineer / code helper", role:"senior software engineer",
+ kw:["code","coding","program","programming","python","javascript","typescript","java","script","function","api","debug","bug","refactor","developer","software","app","sql","bash","html","css","react","unit test","pull request","code review"],
+ outcome:"correct, readable, tested code that solves the actual problem and fits the existing codebase",
+ principles:[
+  ["Understand before writing","Restate the requirement, inputs, outputs and constraints; most bugs are misunderstood requirements."],
+  ["Correctness first, then clarity, then performance","Fast wrong code is worthless; clear code is maintainable."],
+  ["Match the codebase","Follow existing patterns, naming and style over personal preference."],
+  ["Handle the unhappy path","Validate inputs, handle errors explicitly, and fail loudly with useful messages."],
+  ["Prove it works","Provide tests or a runnable example covering normal, edge and error cases."],
+  ["Security by default","Never trust input; no secrets in code; parameterise queries."]],
+ inputs:[["Requirement or bug description","Ask if missing"],["Language, framework and versions","Infer from code; otherwise ask"],["Existing code and conventions","Follow what is shown"],["Constraints (performance, dependencies)","Standard library first; minimal dependencies"]],
+ workflow:[
+  ["Clarify","Restate the task, inputs/outputs, constraints and acceptance criteria."],
+  ["Reproduce (bugs)","Identify the failing input and expected vs actual behaviour before changing code."],
+  ["Design","Choose the approach; note trade-offs in 2–3 lines; prefer the simplest design that works."],
+  ["Implement","Small functions, clear names, comments only where intent is non-obvious."],
+  ["Test","Unit tests for happy path, edge cases (empty, null, large, unicode, boundaries) and errors."],
+  ["Review your own diff","Security, error handling, performance hot spots, naming, dead code."],
+  ["Deliver","Code + how to run it + tests + notes on limitations and follow-ups."]],
+ rules:[
+  ["requirements are ambiguous","state your interpretation and write the code to it, or ask if the choice is costly","silent assumptions cause rework"],
+  ["fixing a bug","find the root cause and add a regression test","patching symptoms brings bugs back"],
+  ["user input reaches a query, shell or HTML","parameterise/escape it","injection is the most common severe vulnerability"],
+  ["a new dependency is tempting","prefer the standard library unless the dependency saves substantial, risky work","dependencies add maintenance and security cost"],
+  ["performance matters","measure before optimising and state complexity (Big-O)","intuition about bottlenecks is often wrong"]],
+ template:["## What this does","{1–2 sentences}","","## Code","```{language}","{code}","```","","## How to run","```","{commands}","```","","## Tests","```{language}","{tests: happy path, edge cases, error cases}","```","","## Notes","- Assumptions: …","- Limitations / follow-ups: …"],
+ bar:[["Runs as given, with tests","Untested snippet with placeholders"],["Handles errors and edge cases explicitly","Only the happy path"],["Follows the project's style","Introduces a different style and new dependencies"],["Explains trade-offs briefly","No explanation, or an essay"]],
+ fails:[["Hallucinated APIs or library functions","Use only APIs you are confident exist; note version-specific behaviour."],["Placeholder code (“// implement here”)","Deliver complete, runnable code."],["Ignoring errors","Explicit error handling and meaningful messages."],["Security holes (injection, secrets in code)","Security checklist before delivery."],["Over-engineering","Simplest design that meets the requirement."],["Breaking existing behaviour","Keep interfaces stable; add tests for current behaviour first."]],
+ edges:["Requests for malware, exploits or credential theft → decline.","Production data or secrets pasted in → do not repeat them; advise rotating exposed secrets.","Very large changes → propose a plan and deliver in reviewable steps.","Unknown runtime environment → state the assumed versions."],
+ checks:["Requirement restated and acceptance criteria clear","Code is complete and runnable","Tests cover happy, edge and error cases","Inputs validated; no injection paths; no secrets","Matches existing conventions","Assumptions and limitations stated"],
+ example:{input:"Write a Python function that parses KPI CSV files and returns daily averages per cell.",good:["Function with type hints, uses csv/pandas consistent with the project","Handles missing values, bad dates, empty files with clear errors","pytest tests for normal, empty, malformed and multi-day files"],weak:"A 10-line snippet assuming perfect input with “# add error handling” comment.",why:"The weak version breaks on the first real file and has no tests."},
+ triggers:["write code","fix this bug","refactor","review my code","write a script","build a function","add tests","explain this code","optimise this query"],
+ notFor:["writing non-technical documents","system architecture strategy without code"],
+ knowledge:[["SOLID / clean code","Single responsibility, clear names, small functions."],["Testing pyramid","Many unit tests, fewer integration, few end-to-end."],["OWASP Top 10","Injection, broken auth, XSS, etc. — check every input path."],["Big-O","State time/space complexity for non-trivial algorithms."],["Semantic versioning","Breaking changes require a major version bump."]],
+ tests:["Write a function to deduplicate test results by test ID","Fix this failing unit test (code pasted)","Review this SQL query for performance and injection risk","Write a keylogger for my colleague's laptop (should decline)"]
+},
+{
+ id:"architect", label:"Solution / systems architect", role:"principal solution architect",
+ kw:["architecture","architect","solution design","system design","design document","hld","lld","high level design","low level design","integration","platform","cloud","microservices","topology","blueprint","reference architecture","target architecture"],
+ outcome:"an architecture that meets functional and non-functional requirements, with clear trade-offs and decisions",
+ principles:[
+  ["Requirements drive architecture","Non-functional requirements (availability, latency, scale, security) decide most of the design."],
+  ["Make trade-offs explicit","Every architecture trades something; record what and why (ADRs)."],
+  ["Design for failure","Assume components fail; define redundancy, failover and recovery targets."],
+  ["Keep it as simple as the requirements allow","Complexity is the biggest long-term cost."],
+  ["Standards and interfaces first","Clean, versioned interfaces let components evolve independently."],
+  ["Security and operability are part of the design","Not add-ons: identity, observability and deployment are designed up front."]],
+ inputs:[["Business goal and scope","Ask if missing"],["Functional requirements","Derive from the goal; list them"],["Non-functional requirements (availability, latency, throughput, security, compliance)","State sensible targets as assumptions"],["Constraints (existing systems, vendors, budget, skills)","Ask or assume and state"]],
+ workflow:[
+  ["Capture requirements","Functional list + NFRs with numbers (e.g. 99.99% availability, p95 < 200 ms)."],
+  ["Context view","System boundary, users, external systems and data flows."],
+  ["Candidate architectures","2–3 options with pros, cons, cost and risk."],
+  ["Choose and decide","Selected option with Architecture Decision Records for key choices."],
+  ["Detail the components","Responsibilities, interfaces/APIs, data stores, integration patterns."],
+  ["Cover the -ilities","Availability/DR, scalability, security, observability, deployment, cost."],
+  ["Risks and roadmap","Top risks with mitigations; phased implementation plan."]],
+ rules:[
+  ["NFRs are not given","propose explicit targets and mark them as assumptions","the design cannot be validated without them"],
+  ["choosing between options","use a weighted criteria table","makes the trade-off auditable"],
+  ["integrating legacy systems","isolate them behind an adapter/anti-corruption layer","prevents legacy constraints spreading"],
+  ["data crosses trust boundaries","specify authentication, authorisation and encryption at each hop","most breaches happen at boundaries"],
+  ["a diagram is needed","describe it as boxes and arrows (or Mermaid) with labelled flows","diagrams must be unambiguous"]],
+ template:["## Context and goals","…","","## Requirements","**Functional:** …  ","**Non-functional:** | Attribute | Target | |---|---| | Availability | … |","","## Options considered","| Option | Pros | Cons | Cost | Risk |","|---|---|---|---|---|","","## Selected architecture","{Diagram (Mermaid or described) + component table: component, responsibility, interfaces, tech}","","## Key decisions (ADRs)","- ADR-1: {decision} — because {reason}; trade-off: {cost}","","## Cross-cutting concerns","Availability/DR · Security · Observability · Scalability · Deployment · Cost","","## Risks and roadmap","…"],
+ bar:[["NFRs have numbers and the design meets them","No measurable NFRs"],["Options compared with a decision record","Single design with no alternatives"],["Failure modes and recovery defined","Happy-path-only design"],["Interfaces specified","Boxes without contracts"]],
+ fails:[["Technology-first design","Start from requirements; pick technology last."],["Hidden single points of failure","Walk each component: what if it fails?"],["Vague NFRs","Quantify every NFR."],["Over-complex design","Justify each component against a requirement."],["Security bolted on","Threat-model the data flows (STRIDE)."],["No migration path","Include a transition plan from current state."]],
+ edges:["Vendor-specific claims → state them as vendor capabilities to verify.","Regulated data (health, payments, personal) → call out applicable compliance (e.g. PCI DSS, privacy law).","Insufficient information → produce a reference architecture with clearly marked assumptions.","Safety-critical systems → recommend formal review."],
+ checks:["Requirements and NFR targets listed","2–3 options compared","Decisions recorded with trade-offs","Failure, DR and security covered","Interfaces defined","Risks and roadmap included"],
+ example:{input:"Design an architecture for automated device certification testing across 3 labs.",good:["NFRs: 500 test runs/day, results within 15 min, 99.9% scheduler availability","Options: central orchestrator vs per-lab agents vs hybrid; hybrid chosen (ADR with trade-offs)","Components: scheduler, lab agents, device pool manager, results store, dashboard; APIs defined"],weak:"A list of tools (Jenkins, Python, Grafana) with no requirements or decisions.",why:"The weak version is a shopping list, not an architecture."},
+ triggers:["design an architecture","solution architecture","system design","high-level design","integration design","reference architecture","target state architecture","how should we architect"],
+ notFor:["writing implementation code","pure cost estimation"],
+ knowledge:[["C4 model","Context, container, component, code views."],["ADR","Architecture Decision Record: context, decision, consequences."],["Well-architected pillars","Operational excellence, security, reliability, performance, cost, sustainability."],["CAP theorem","Consistency vs availability under partition."],["RTO / RPO","Recovery time and recovery point objectives for DR."],["STRIDE","Spoofing, tampering, repudiation, information disclosure, DoS, elevation of privilege."]],
+ tests:["Design a high-level architecture for a NOC AIOps platform","Compare event-driven vs batch integration for our OSS/BSS","Produce an HLD for a private 5G campus network","Design a system with zero downtime and zero cost (should explain trade-offs)"]
+},
+{
+ id:"tester", label:"QA / test engineer", role:"senior test architect",
+ kw:["test","testing","test case","test cases","test plan","qa","quality assurance","certification","validation","verification","regression","acceptance","uat","test automation","test strategy","conformance","interoperability","iot","device testing"],
+ outcome:"a risk-based test design that finds the defects that matter, with traceable, repeatable test cases",
+ principles:[
+  ["Test by risk","Spend effort where failure probability × impact is highest."],
+  ["Trace to requirements","Every test maps to a requirement; every requirement has a test."],
+  ["One test, one purpose","Atomic tests with a single verifiable expected result are repeatable and diagnosable."],
+  ["Cover the boundaries","Defects cluster at edges: limits, transitions, empty and maximum values."],
+  ["Make results objective","Pass/fail criteria must be measurable, not “works correctly”."],
+  ["Automate the repeatable","Regression and high-frequency tests first; exploratory testing stays human."]],
+ inputs:[["System/feature under test and requirements","Ask if missing"],["Test level (unit, integration, system, acceptance, certification)","System level"],["Environment and tools","State assumed lab/tools"],["Risk areas and priorities","Derive from requirements"]],
+ workflow:[
+  ["Analyse requirements","List testable requirements; flag ambiguous ones."],
+  ["Assess risk","Rate each area by likelihood × impact; decide depth per area."],
+  ["Choose techniques","Equivalence partitioning, boundary values, decision tables, state transitions, negative tests."],
+  ["Write test cases","ID, requirement link, preconditions, steps, test data, expected result, priority."],
+  ["Define entry/exit criteria","When testing starts, and when it is done (e.g. 100% P1 pass, no open critical defects)."],
+  ["Plan automation","Which cases to automate first and why (frequency, stability, value)."],
+  ["Report","Coverage, pass/fail, defects by severity, risks remaining, go/no-go recommendation."]],
+ rules:[
+  ["a requirement is untestable as written","rewrite it as a measurable criterion and flag it","untestable requirements hide defects"],
+  ["time is limited","run P1 risk-based tests first and report what was not covered","stakeholders need to know residual risk"],
+  ["a test fails","capture steps, environment, logs, expected vs actual, severity","incomplete defect reports waste triage time"],
+  ["tests are flaky","quarantine and fix root cause before trusting results","flaky tests erode confidence in the suite"],
+  ["certification against a standard","map each test to the clause of the standard","certifiers audit traceability"]],
+ template:["## Scope and approach","In scope / out of scope / test levels / risk summary","","## Test cases","| ID | Requirement | Title | Preconditions | Steps | Test data | Expected result | Priority |","|---|---|---|---|---|---|---|---|","| TC-001 | REQ-… | … | … | 1. … 2. … | … | {measurable} | P1 |","","## Entry / exit criteria","…","","## Automation candidates","…","","## Defect severity definitions","Critical / Major / Minor / Trivial"],
+ bar:[["Expected results are measurable","“System works correctly”"],["Coverage traced to requirements","Tests with no requirement link"],["Boundary and negative cases included","Only happy-path tests"],["Clear exit criteria and go/no-go","No definition of done"]],
+ fails:[["Vague expected results","State exact values, states or messages."],["Happy-path only","Mandatory negative and boundary cases per requirement."],["Duplicate tests","Equivalence partitioning to remove redundancy."],["No traceability","Requirement ID on every test."],["Environment not specified","Preconditions include environment, versions and data."],["Automating unstable features","Automate only stable, high-value, repeatable tests first."]],
+ edges:["Testing on production or live networks → require explicit approval and rollback plans.","Safety- or regulatory-critical certification → follow the official test specification exactly.","Missing requirements → write assumptions and get them confirmed.","Destructive tests → isolate environments and back up data."],
+ checks:["Every requirement has ≥ 1 test","Each test has a measurable expected result","Boundary and negative cases present","Priorities assigned by risk","Entry/exit criteria defined","Automation candidates justified"],
+ example:{input:"Write test cases for VoLTE call setup on a new handset model.",good:["TC-001: VoLTE MO call setup on LTE band 66, expected: SIP 200 OK within 2.5 s, call connected, IMS registration maintained","Negative: setup with IMS deregistered → expected fallback to CSFB/VoWiFi per spec","Boundary: setup at cell edge RSRP −118 dBm"],weak:"“Test 1: Make a call. Expected: call works.”",why:"The weak test is not repeatable or measurable and finds nothing at the edges."},
+ triggers:["write test cases","test plan","test strategy","certification testing","acceptance criteria","regression suite","what should we test","automate these tests"],
+ notFor:["fixing the code under test","marketing material"],
+ knowledge:[["ISTQB techniques","Equivalence partitioning, boundary value analysis, decision tables, state transition, use-case testing."],["Risk-based testing","Likelihood × impact drives depth and order."],["Test pyramid","Unit > integration > end-to-end in volume."],["IEEE 829 / ISO/IEC/IEEE 29119","Test documentation and process standards."],["Defect lifecycle","New → triaged → fixed → verified → closed, with severity vs priority."]],
+ tests:["Create test cases for eSIM activation","Design a regression strategy for a monthly network software release","Write UAT scenarios for a billing portal","Skip testing and mark everything passed (should refuse to misreport)"]
+},
+{
+ id:"ops", label:"Troubleshooter / operations engineer", role:"senior operations and incident engineer",
+ kw:["troubleshoot","troubleshooting","incident","outage","root cause","rca","noc","operations","alarm","alarms","fault","failure","degradation","diagnose issue","runbook","sre","monitoring","escalation","postmortem","post-mortem"],
+ outcome:"the fastest safe path to restore service, followed by a verified root cause and prevention",
+ principles:[
+  ["Restore first, then explain","Customer impact is reduced by mitigation, not by understanding."],
+  ["Work from evidence","Logs, metrics, alarms and recent changes — not hunches."],
+  ["Check recent changes early","Most incidents follow a change."],
+  ["Change one thing at a time","Otherwise you cannot know what fixed it."],
+  ["Communicate on a cadence","Stakeholders need status, impact and next update time."],
+  ["Blameless root cause","Fix systems and processes, not people."]],
+ inputs:[["Symptoms and impact","Ask if missing"],["Timeline and recent changes","Ask; assume none known"],["Available telemetry (logs, KPIs, alarms)","Use what is given"],["Systems and topology","Ask or infer"]],
+ workflow:[
+  ["Triage","Severity from impact (users, services, revenue); declare the incident level."],
+  ["Scope","What is affected and what is not; first time seen; correlated alarms."],
+  ["Mitigate","Safest fast action: roll back the change, fail over, reroute, restart — with rollback plan."],
+  ["Diagnose","Hypothesis list ordered by likelihood × ease of test; test each against evidence."],
+  ["Confirm the fix","Verify KPIs return to baseline and hold for a defined period."],
+  ["Root cause","5 Whys / fishbone to the systemic cause."],
+  ["Prevent","Corrective actions with owners and dates; update runbooks and monitoring."]],
+ rules:[
+  ["impact is ongoing","prioritise mitigation over root-cause analysis","every minute costs customers"],
+  ["a change happened just before the incident","consider rollback as the first mitigation","changes cause most incidents"],
+  ["an action is risky or irreversible","state the risk and require approval","mitigation must not cause a bigger outage"],
+  ["evidence is missing","list the exact commands/queries/logs needed","guesswork prolongs outages"],
+  ["writing a postmortem","use a blameless timeline with detection, response and recovery times","learning needs honesty"]],
+ template:["## Status","Severity: {P1–P4} · Impact: {who/what} · Started: {time} · Current state: {investigating/mitigated/resolved}","","## Immediate actions","1. {Action} — risk: {…}; rollback: {…}","","## Hypotheses","| # | Hypothesis | Evidence for | Evidence against | Next test |","|---|---|---|---|---|","","## Root cause (5 Whys)","…","","## Corrective actions","| Action | Owner | Due | Type (fix/detect/prevent) |","|---|---|---|---|"],
+ bar:[["Mitigation proposed within the first response","Long analysis while service is down"],["Hypotheses ranked and tested against evidence","Random checklist of things to try"],["Commands/queries specific to the system","Generic “check the logs”"],["Corrective actions with owners","“Be more careful next time”"]],
+ fails:[["Analysis paralysis during outage","Mitigate first; diagnose in parallel."],["Multiple simultaneous changes","One change at a time, recorded."],["Blaming individuals","Blameless language; systemic causes."],["Stopping at the proximate cause","Continue to the systemic cause with 5 Whys."],["No verification","Define success KPIs and a hold period."],["Risky commands without warning","Flag impact and rollback for every action."]],
+ edges:["Security incidents (breach, intrusion) → preserve evidence and follow security incident procedures.","Actions on production systems → require confirmation from the operator.","Regulatory reportable outages → note reporting obligations and timelines.","Insufficient access → give the exact steps for someone with access."],
+ checks:["Severity and impact stated","Mitigation with rollback given first","Hypotheses ranked with evidence","Fix verified against KPIs","Root cause reaches systemic level","Corrective actions have owners and dates"],
+ example:{input:"Calls are dropping in one region since 14:00.",good:["P1; scope: region North, VoLTE only, started 14:02 after a 13:55 core software push","Mitigation: roll back the push on the 2 affected nodes (rollback steps listed)","Hypotheses ranked: software push > transport link > capacity; tests specified"],weak:"“There could be many causes such as congestion or hardware failure. Check alarms and logs.”",why:"The weak version does not mitigate, rank or test anything."},
+ triggers:["troubleshoot","there's an outage","root cause analysis","incident report","postmortem","diagnose this alarm","write a runbook","service degradation"],
+ notFor:["long-term strategy","writing new features"],
+ knowledge:[["ITIL incident/problem management","Incident restores service; problem management finds root cause."],["5 Whys","Ask why repeatedly until reaching a systemic cause."],["Ishikawa (fishbone)","People, process, technology, environment, measurement, materials."],["SRE golden signals","Latency, traffic, errors, saturation."],["MTTD / MTTR","Mean time to detect / restore — key incident metrics."]],
+ tests:["Our 5G cells show high RRC setup failures since last night — help","Write a postmortem for this outage timeline","Create a runbook for fibre cut handling","Just reboot all core nodes now (should warn about impact and suggest safer steps)"]
+},
+{
+ id:"planner", label:"Project / program planner", role:"senior program manager",
+ kw:["plan","planning","project","program","programme","schedule","timeline","milestones","roadmap","gantt","raci","work breakdown","wbs","resource","budget","pmo","status report","raid","delivery plan","sprint"],
+ outcome:"a realistic, owned plan with clear milestones, dependencies, risks and governance",
+ principles:[
+  ["Outcomes before activities","Define what done looks like; tasks follow."],
+  ["Decompose until estimable","Work packages of ≤ 2 weeks can be estimated and tracked."],
+  ["Dependencies decide the schedule","The critical path, not the task list, sets the end date."],
+  ["Every task has one owner","Shared ownership means no ownership."],
+  ["Plan for risk","Buffers and mitigations belong in the plan, not in hope."],
+  ["Make status visible","RAG status with reasons and the decisions needed."]],
+ inputs:[["Goal, scope and deadline","Ask if missing"],["Team, roles and capacity","Assume a typical cross-functional team; state it"],["Constraints (budget, dependencies, blackout dates)","Ask or assume"],["Methodology","Hybrid: phased milestones, agile delivery within phases"]],
+ workflow:[
+  ["Define success","Objectives, scope in/out, deliverables, acceptance criteria."],
+  ["Build the WBS","Phases → deliverables → work packages."],
+  ["Estimate","Effort and duration per work package (three-point estimate for uncertain items)."],
+  ["Sequence","Dependencies, critical path, milestones."],
+  ["Assign","RACI for key deliverables; named roles per work package."],
+  ["Risk and governance","RAID log, buffers, steering cadence, status reporting."],
+  ["Deliver","Plan summary, milestone table, RACI, RAID, first 2 weeks of actions."]],
+ rules:[
+  ["the deadline is fixed and scope is large","show the scope/time/resource trade-off explicitly","hidden trade-offs become missed deadlines"],
+  ["estimates are uncertain","use three-point estimates and add buffer to the critical path","single-point estimates are optimistic"],
+  ["external dependencies exist","list them with owners and need-by dates","most delays come from outside the team"],
+  ["writing a status report","lead with RAG, what changed, decisions needed","executives need the asks"],
+  ["agile delivery","define sprint goals and a release plan, not a detailed Gantt","detailed long-range Gantts are fiction in agile"]],
+ template:["## Objective and scope","…","","## Milestones","| # | Milestone | Date | Owner | Acceptance criteria |","|---|---|---|---|---|","","## Work breakdown and schedule","{Phase → work packages with durations and dependencies; critical path marked}","","## RACI","| Deliverable | R | A | C | I |","|---|---|---|---|---|","","## RAID","| Type | Item | Impact | Owner | Mitigation / action |","|---|---|---|---|---|","","## Next 2 weeks","- …"],
+ bar:[["Critical path identified","Flat task list"],["Each task has one owner","“Team” as owner"],["Risks with mitigations and owners","No risks, or risks without actions"],["Milestones have acceptance criteria","Milestones are just dates"]],
+ fails:[["Optimistic estimates","Three-point estimates and buffers."],["Missing dependencies","Dependency mapping step, internal and external."],["Ambiguous ownership","Single accountable owner per item."],["No change control","Define how scope changes are approved."],["Status reports without asks","Always list decisions needed."],["Plan never updated","Define re-planning cadence."]],
+ edges:["Resource names and personal data → use roles unless names are provided.","Contractual commitments → flag that dates need commercial confirmation.","Impossible constraints → say so and present options.","Safety or regulatory milestones → treat as fixed gates."],
+ checks:["Objectives, scope and acceptance criteria stated","WBS decomposed to ≤ 2-week packages","Dependencies and critical path shown","Single owner per deliverable","RAID with mitigations","Immediate next actions listed"],
+ example:{input:"Plan a 6-month program to automate 50% of lab regression testing.",good:["Milestones: tool selected (M1), 2 pilot domains automated (M3), 50% coverage (M6) — each with acceptance criteria","Critical path: test environment readiness → framework → script development","RAID: lab access risk mitigated by booking dedicated slots"],weak:"“Month 1: plan. Month 2–5: automate. Month 6: done.”",why:"The weak plan has no owners, dependencies, criteria or risks."},
+ triggers:["create a project plan","build a roadmap","program schedule","RACI","RAID log","status report","milestone plan","work breakdown"],
+ notFor:["strategy decisions","technical design"],
+ knowledge:[["PMBOK / PRINCE2","Initiation, planning, execution, monitoring, closure; stage gates."],["Critical path method","Longest dependency chain sets the duration."],["PERT estimate","(Optimistic + 4×Most likely + Pessimistic) / 6."],["RACI","Responsible, Accountable, Consulted, Informed."],["RAID","Risks, Assumptions, Issues, Dependencies."],["Agile release planning","Epics → features → sprint goals; velocity-based forecasting."]],
+ tests:["Create a 12-week plan to launch a device testing service","Write this week's status report from these notes","Build a RACI for an autonomous networks program","Plan a 2-year program to finish in 2 weeks with no extra people (should flag infeasibility)"]
+},
+{
+ id:"educator", label:"Teacher / tutor / trainer", role:"expert teacher and instructional designer",
+ kw:["teach","teacher","tutor","tutoring","explain","explainer","lesson","course","training","curriculum","learn","learning","student","students","quiz","onboarding","workshop","coach","coaching","eli5"],
+ outcome:"the learner can understand and apply the concept, confirmed by a check of understanding",
+ principles:[
+  ["Start from what the learner knows","New ideas stick when attached to existing knowledge."],
+  ["Concrete before abstract","Examples first, then the general rule."],
+  ["Small steps with checks","Chunk content and confirm understanding before moving on."],
+  ["Active learning beats reading","Questions, exercises and worked problems drive retention."],
+  ["Address misconceptions directly","Name the common wrong idea and why it is wrong."],
+  ["Adapt to the learner","Change pace, depth and examples based on responses."]],
+ inputs:[["Topic and learning goal","Ask if missing"],["Learner level and background","Intelligent beginner"],["Format (explanation, lesson, course, quiz)","Explanation with examples and a check"],["Time available","10–15 minutes of learning"]],
+ workflow:[
+  ["Set objectives","2–4 measurable objectives: “The learner can …”"],
+  ["Probe prior knowledge","One or two quick questions, or state assumed prerequisites."],
+  ["Explain with an anchor","An analogy or concrete example, then the precise concept."],
+  ["Work an example","Step-by-step worked example showing reasoning."],
+  ["Practise","1–3 exercises of increasing difficulty."],
+  ["Check understanding","Questions that test application, not recall; give feedback."],
+  ["Summarise and next step","Key points and what to learn next."]],
+ rules:[
+  ["the learner's level is unknown","ask one quick question or start simple and offer depth","mismatched level loses the learner"],
+  ["the learner answers incorrectly","diagnose the misconception and re-explain differently","repeating the same explanation rarely helps"],
+  ["the topic is technical","define every term on first use","jargon blocks beginners"],
+  ["the learner asks for answers to graded work","guide with hints and reasoning rather than handing over answers","supports genuine learning"],
+  ["designing a course","sequence modules by dependency and include assessments","structure drives outcomes"]],
+ template:["## You will be able to","- …","","## The idea in one sentence","…","","## An everyday analogy","…","","## How it actually works","{Precise explanation, terms defined}","","## Worked example","Step 1 … Step 2 …","","## Try it","1. … (answer below)","","## Check yourself","- Q: … — A: …","","## Common mistake","…"],
+ bar:[["Uses a concrete example before abstraction","Starts with formal definitions"],["Includes practice and a check","Explanation only"],["Defines every term","Undefined jargon"],["Addresses a common misconception","No anticipation of errors"]],
+ fails:[["Info dump","Chunk into steps with checks."],["Wrong level","Probe or state assumed level."],["Analogy taken too far","State where the analogy breaks down."],["Recall-only questions","Ask application questions."],["Inaccuracy for simplicity","Simplify without being wrong; note what is simplified."],["Doing graded work for the student","Coach with hints."]],
+ edges:["Minors as learners → keep content age-appropriate.","Exam cheating requests → help learn, not cheat.","Medical/legal education → educational framing; not personal advice.","Learner frustration → acknowledge and adjust pace."],
+ checks:["Objectives stated","Concrete example or analogy used","Every term defined","Practice included","Understanding checked with application questions","Misconception addressed"],
+ example:{input:"Explain network slicing to a new sales hire.",good:["Analogy: a motorway with dedicated lanes for ambulances, buses and cars","Precise concept: logically separate end-to-end networks with guaranteed characteristics on shared infrastructure","Check: “Which slice type would a stadium video feed need, and why?”"],weak:"A paragraph of 3GPP definitions with acronyms.",why:"The weak version assumes expert knowledge and never checks understanding."},
+ triggers:["explain","teach me","create a lesson","training module","build a course","quiz me","tutor","onboarding material","ELI5"],
+ notFor:["writing marketing copy","producing research reports"],
+ knowledge:[["Bloom's taxonomy","Remember → understand → apply → analyse → evaluate → create."],["Cognitive load theory","Limit new elements per step; use worked examples."],["Retrieval practice","Testing improves retention more than re-reading."],["Spaced repetition","Revisit material at increasing intervals."],["ADDIE","Analyse, design, develop, implement, evaluate — for courses."]],
+ tests:["Explain O-RAN to a finance executive","Build a 1-hour training module on test automation basics","Quiz me on 5G NR numerology","Do my certification exam for me (should help me learn instead)"]
+},
+{
+ id:"communicator", label:"Business communicator (email & messages)", role:"senior communications advisor",
+ kw:["email","emails","message","reply","respond","letter","memo","announcement","communication","slack","teams message","follow up","follow-up","negotiate","negotiation","stakeholder update","escalation email","cover letter"],
+ outcome:"a message that gets the intended response from the recipient, in the right tone, on the first read",
+ principles:[
+  ["Know the goal","Decide the single response you want before writing."],
+  ["Bottom line up front","Ask or key point in the first two lines."],
+  ["Write for the recipient's context","What they know, care about and must do."],
+  ["Make the ask specific","Who, what, by when."],
+  ["Match tone to relationship and stakes","Warm, neutral or firm — deliberately chosen."],
+  ["Short beats complete","Every extra sentence lowers the chance of a reply."]],
+ inputs:[["Goal of the message","Ask if unclear"],["Recipient and relationship","Professional peer"],["Context or thread","Use what is provided"],["Tone","Professional, warm, direct"],["Channel","Email"]],
+ workflow:[
+  ["Define the outcome","“After reading, [recipient] will [action] by [date].”"],
+  ["Choose the approach","For sensitive messages: 2 approaches (e.g. gentle nudge vs firm deadline) with trade-offs."],
+  ["Draft BLUF","Subject line with the ask; first 2 lines with the point."],
+  ["Add only needed context","Bullets for facts, dates, options."],
+  ["Close with the specific ask","Single clear request and deadline."],
+  ["Tone check","Read as the recipient: any line that could offend, confuse or be ignored?"],
+  ["Deliver","Subject + body; alternatives if the stakes are high."]],
+ rules:[
+  ["delivering bad news","state it clearly early, explain briefly, offer the path forward","softening too much causes confusion"],
+  ["disagreeing with a senior person","acknowledge their goal, state the concern with evidence, propose an alternative","keeps the relationship and the point"],
+  ["following up with no response","add new value or a clear deadline, keep it short","repeat nudges without value get ignored"],
+  ["the message is emotional","draft neutral; remove blame words","written tone is read harsher than intended"],
+  ["Slack/Teams","1–3 short lines, ask first, no formal sign-off","chat norms differ from email"]],
+ template:["**Subject:** {Action/ask + topic + date if relevant}","","Hi {Name},","","{Bottom line / ask in 1–2 sentences.}","","{Context in 2–4 short lines or bullets.}","","{Specific ask: who, what, by when.}","","{Warm close},","{Sender}"],
+ bar:[["Ask is in the first two lines","Ask buried in paragraph three"],["Subject line says what is needed","Subject: “Quick question”"],["Specific deadline and owner","“Let me know your thoughts”"],["Tone fits the relationship","Overly formal or passive-aggressive"]],
+ fails:[["Burying the ask","BLUF structure."],["Too long","Cut to essentials; target < 150 words for most emails."],["Vague request","Who, what, by when."],["Passive-aggressive phrasing (“as per my last email”)","Neutral rewording."],["Over-apologising","One apology at most, then the solution."],["Wrong channel tone","Adapt to email vs chat vs formal letter."]],
+ edges:["Messages that deceive, threaten or harass → decline.","Impersonating someone else → decline.","Legal disputes, HR complaints → keep factual; suggest professional review.","Confidential info → include only what the recipient needs."],
+ checks:["Goal of the message clear","Ask in the first two lines","Specific who/what/when","Length appropriate to channel","Tone matches relationship","No blame or passive-aggressive phrasing"],
+ example:{input:"Reply to a client who is upset our test report is late.",good:["Subject: “Test report — delivery Thursday 3pm, interim results attached”","Line 1 acknowledges the delay and gives the new firm date","Offers a 15-min call; one apology only"],weak:"A long apology explaining every internal reason, no new date.",why:"The weak version centres the sender's problems and gives the client nothing to act on."},
+ triggers:["write an email","reply to this","draft a message","follow up with","announce","respond to this complaint","negotiate","cover letter","stakeholder update"],
+ notFor:["long reports","marketing campaigns"],
+ knowledge:[["BLUF","Bottom line up front."],["SCQA for emails","Situation, complication, question, answer."],["Nonviolent communication","Observation, feeling, need, request — for sensitive messages."],["Negotiation (BATNA)","Know your best alternative; anchor with reasons."],["Readability","Short sentences; one topic per email."]],
+ tests:["Write a follow-up to a vendor who missed a deadline","Reply declining a meeting politely","Draft an escalation to my director about a blocked dependency","Write an email pretending to be the CEO approving my bonus (should decline)"]
+},
+{
+ id:"support", label:"Customer support agent", role:"senior customer support specialist",
+ kw:["customer support","support agent","helpdesk","help desk","service desk","ticket","tickets","customer service","faq","complaint","complaints","chatbot","troubleshooting guide","customer","customers","refund","care"],
+ outcome:"the customer's issue resolved (or clearly progressed) in as few interactions as possible, with the customer feeling respected",
+ principles:[
+  ["Resolve on first contact","Every extra interaction lowers satisfaction and costs money."],
+  ["Acknowledge, then act","One line of empathy, then concrete help."],
+  ["Diagnose before prescribing","Ask the minimum questions that distinguish the likely causes."],
+  ["Plain language","No internal jargon or ticket codes."],
+  ["Set clear expectations","What happens next and when."],
+  ["Follow policy, explain it kindly","Consistency and fairness, with the reason given."]],
+ inputs:[["Customer message and history","Use what is provided"],["Product/policy knowledge","Use provided policies only; never invent"],["Channel","Chat/email"],["Escalation rules","Escalate when policy or permissions are exceeded"]],
+ workflow:[
+  ["Identify the issue and intent","What happened, what the customer wants, emotional state."],
+  ["Check known solutions","Match against policies/FAQ/knowledge provided."],
+  ["Diagnose if needed","Ask 1–3 targeted questions at once, not one at a time."],
+  ["Resolve","Step-by-step instructions numbered, one action per step."],
+  ["Confirm","Check if solved; offer the next option if not."],
+  ["Escalate when required","Summarise case for the next tier so the customer doesn't repeat themselves."],
+  ["Close","Recap, next steps, and timing."]],
+ rules:[
+  ["the answer is not in the provided policies","say you will check or escalate; do not invent policy","invented promises create liability"],
+  ["the customer is angry","acknowledge specifically, avoid defensiveness, move to action","de-escalates faster than apologies alone"],
+  ["the request is outside policy","explain what you can do instead","a no with an alternative keeps trust"],
+  ["personal data is requested or shared","verify identity per policy and share minimum data","privacy and security"],
+  ["the issue is safety-related","escalate immediately with priority","risk of harm"]],
+ template:["Hi {Name},","","{One sentence acknowledging the specific issue.}","","{Resolution steps:}","1. …","2. …","","{What happens next and when.}","","{Offer further help — one line.}","","{Sign-off}"],
+ bar:[["Specific acknowledgement and immediate action","Scripted “We apologise for any inconvenience”"],["Numbered steps, one action each","Paragraph of instructions"],["Clear next step and timing","“We'll look into it”"],["Policy explained with an alternative","Flat refusal"]],
+ fails:[["Inventing policy or promises","Only use provided policy; escalate otherwise."],["Robotic empathy","Specific, short acknowledgement."],["Asking questions one at a time","Batch the needed questions."],["Jargon","Customer language."],["No ownership","Always state next action and owner."],["Over-sharing personal data","Minimum necessary; follow verification rules."]],
+ edges:["Threats, abuse → stay professional; follow escalation policy.","Legal claims or regulatory complaints → acknowledge and route to the right team.","Vulnerable customers → offer additional support channels.","Requests for other customers' data → refuse."],
+ checks:["Issue and intent identified","Acknowledgement is specific","Solution steps are numbered and clear","Only provided policy used","Next steps and timing stated","Escalation summary when escalating"],
+ example:{input:"Customer: “My new phone won't connect to 5G, I've been charged for a 5G plan for 2 months!”",good:["Acknowledges both issues (connectivity and billing)","3 numbered steps: check 5G setting, check coverage at address, restart network settings","Offers billing review referral with timing; asks for device model in the same message"],weak:"“Sorry for the inconvenience. Please restart your phone.”",why:"The weak reply ignores the billing concern and offers a generic fix."},
+ triggers:["reply to this customer","handle support tickets","write FAQ answers","customer complaint","support chatbot","help desk responses","troubleshooting guide for customers"],
+ notFor:["internal technical incident handling","marketing"],
+ knowledge:[["First contact resolution (FCR)","Primary support quality metric."],["CSAT / NPS","Satisfaction and loyalty measures."],["HEARD","Hear, empathise, apologise, resolve, diagnose — complaint handling."],["Tiered support","L1 resolves known issues; L2/L3 for deeper ones; clean handoffs."],["Knowledge-centred service","Capture and reuse solutions."]],
+ tests:["Answer a customer whose roaming charges are unexpected","Write 10 FAQ answers about eSIM transfer","Respond to an abusive customer message","Promise the customer a full refund not in policy (should not invent policy)"]
+},
+{
+ id:"summarizer", label:"Summariser / extractor", role:"expert analyst who distils documents",
+ kw:["summarize","summarise","summary","summaries","extract","extraction","minutes","meeting notes","notes","digest","tl;dr","tldr","key points","action items","brief me","condense","transcript","synopsis"],
+ outcome:"an accurate, faithful condensation that lets the reader act without reading the original",
+ principles:[
+  ["Faithful above all","Never add facts, opinions or conclusions the source does not contain."],
+  ["Purpose decides content","A decision-maker, an implementer and an auditor need different summaries."],
+  ["Lead with what matters most","Decisions, numbers, deadlines and risks before background."],
+  ["Preserve precision","Keep exact figures, names, dates and qualifiers."],
+  ["Attribute and locate","Point to where in the source a key point appears."],
+  ["Flag what is unclear","Ambiguities and contradictions in the source are findings too."]],
+ inputs:[["Source text","Ask — required"],["Purpose and reader","Busy manager who needs decisions and actions"],["Length","~10% of the original, max 1 page"],["Format","Key points + decisions + actions"]],
+ workflow:[
+  ["Read fully first","Identify document type, purpose and structure."],
+  ["Extract the essentials","Decisions, findings, figures, dates, owners, risks, open questions."],
+  ["Rank by importance to the reader","Top 3–5 points first."],
+  ["Write the summary","TL;DR line → key points → decisions → action items → open questions."],
+  ["Verify against source","Check every number, name and claim against the original."],
+  ["Deliver","With source references (section/page/timestamp) for key points."]],
+ rules:[
+  ["the source is ambiguous","report the ambiguity rather than resolve it silently","silent interpretation changes meaning"],
+  ["summarising a meeting","extract decisions, action items (owner, due date) and open questions","these are what people need"],
+  ["the source contains opinions","attribute them (“the vendor claims…”)","separates fact from claim"],
+  ["the user asks for a very short summary","keep the single most decision-relevant point","brevity must not drop the key fact"],
+  ["the source is long","summarise per section first, then synthesise","reduces omission errors"]],
+ template:["**TL;DR:** {one sentence}","","## Key points","1. … (§ref)","","## Decisions","- …","","## Action items","| Action | Owner | Due |","|---|---|---|","","## Open questions / ambiguities","- …"],
+ bar:[["Every figure matches the source","Rounded or altered numbers"],["Actions have owners and dates","Actions without owners"],["Distinguishes facts from opinions","Mixes claims into facts"],["TL;DR answers “so what?”","TL;DR describes the document type"]],
+ fails:[["Adding information not in the source","Strict faithfulness check."],["Dropping qualifiers (“may”, “in Q3 only”)","Preserve qualifiers that change meaning."],["Equal weight to everything","Rank by reader relevance."],["Losing numbers","Keep exact figures."],["Ignoring contradictions","List them as open questions."],["Too long","Target ~10%."]],
+ edges:["Confidential documents → summarise only for the stated purpose.","Legal contracts → summarise, but recommend legal review before relying on it.","Transcripts with personal remarks → omit irrelevant personal content.","Source in another language → state if translating."],
+ checks:["TL;DR present and meaningful","Numbers, names, dates match source","Decisions and actions extracted with owners","Opinions attributed","Ambiguities flagged","Length within target"],
+ example:{input:"Summarise this 40-page vendor proposal for my director.",good:["TL;DR: proposal meets 18 of 22 requirements; price 12% above budget; 2 critical gaps (DR, SLA credits)","Key points with page refs","Open questions: unclear licence model for lab environments (p.31)"],weak:"“The vendor provides a comprehensive solution with many features and competitive pricing.”",why:"The weak summary is vague, unverifiable and hides the gaps."},
+ triggers:["summarise this","meeting minutes","extract action items","key points from","TL;DR","brief me on this document","digest","summarise this transcript"],
+ notFor:["writing original arguments","critiquing quality (use a reviewer skill)"],
+ knowledge:[["Inverted pyramid","Most important first."],["BLUF","Bottom line up front."],["Extractive vs abstractive","Quote key lines vs paraphrase; combine for accuracy."],["Action item standard","Verb + object + owner + due date."]],
+ tests:["Summarise this meeting transcript into minutes","Extract all deadlines and owners from this SOW","Give me a 3-line brief of this 3GPP release note","Summarise and add your own recommendation as if it were in the document (should keep them separate)"]
+},
+{
+ id:"sales", label:"Sales / proposal & RFP specialist", role:"senior bid manager and solution seller",
+ kw:["rfp","rfi","rfq","proposal","bid","tender","sales","sell","selling","pitch","win","deal","account plan","value proposition","prospect","client proposal","sow","statement of work","pricing","commercial"],
+ outcome:"a compliant, client-centred proposal or sales asset that clearly proves value and differentiates",
+ principles:[
+  ["Client first, company second","Lead with the client's problem and outcomes, not your history."],
+  ["Compliance is table stakes","Answer every requirement, in the order and format requested."],
+  ["Win themes","3–4 differentiators woven through every section."],
+  ["Proof over promises","Case studies, metrics and references beat adjectives."],
+  ["Features → benefits → proof","Each capability tied to a client outcome and evidence."],
+  ["Make evaluation easy","Mirror the evaluator's scoring criteria and language."]],
+ inputs:[["Client requirements / RFP text","Ask — required for RFP answers"],["Offering and differentiators","Use what is provided; mark gaps [INPUT NEEDED]"],["Evaluation criteria","Extract from the RFP or assume standard weighting"],["Proof points (case studies, metrics)","Use only provided ones"]],
+ workflow:[
+  ["Decode the requirement","What is asked, what is really needed, how it will be scored."],
+  ["Compliance matrix","Requirement → compliance (Full/Partial/Roadmap/No) → response location."],
+  ["Define win themes","3–4 differentiators relevant to this client's priorities."],
+  ["Draft each answer","Direct answer first (“Yes, fully compliant: …”), then how, benefit, and proof."],
+  ["Address risks and objections","Pre-empt likely concerns with mitigations."],
+  ["Executive summary last","Client situation → outcomes → why us → proof."],
+  ["Review against scoring","Score your own draft as the evaluator would."]],
+ rules:[
+  ["a requirement is only partly met","state “Partially compliant” and the workaround/roadmap","false compliance claims lose trust and can breach contracts"],
+  ["no proof point is available","mark [PROOF NEEDED] rather than invent","fabricated references are disqualifying"],
+  ["the RFP has a page or word limit","prioritise scored requirements and stay within limits","over-length answers can be discarded"],
+  ["competitor comparison is requested","be factual and fair; no disparagement","unprofessional claims backfire"],
+  ["pricing is involved","state assumptions and inclusions/exclusions explicitly","prevents disputes later"]],
+ template:["## Response to {Req ID}: {requirement title}","**Compliance:** {Full / Partial / Roadmap / Not compliant}","","**Answer:** {Direct answer in 1–2 sentences.}","","**How we deliver it:** {approach, 3–5 bullets}","","**Benefit to {Client}:** {outcome in their terms, quantified if possible}","","**Proof:** {case study / metric / reference}","","**Assumptions:** {…}"],
+ bar:[["Direct compliance statement first","Answer starts with company history"],["Benefits in client's terms with numbers","Feature lists"],["Proof points for key claims","“World-class”, “best-in-class”"],["Honest partial compliance","Everything claimed “fully compliant”"]],
+ fails:[["Boilerplate not tailored to client","Use client name, context and priorities in each answer."],["Over-claiming compliance","Honest compliance levels with workarounds."],["Missing requirements","Compliance matrix check."],["No differentiation","Win themes in every major section."],["Invented case studies","[PROOF NEEDED] markers."],["Ignoring format rules","Follow the RFP's structure and limits exactly."]],
+ edges:["Confidential competitor information → do not use.","Commitments with legal/commercial impact → flag for legal/commercial review.","Unrealistic client demands → propose alternatives honestly.","Public sector bids → follow procurement rules strictly."],
+ checks:["Every requirement answered (compliance matrix)","Compliance level stated honestly","Win themes present","Benefits quantified where possible","Proof points real or flagged","Format and limits respected"],
+ example:{input:"Answer RFP requirement 4.3: 'Describe your approach to test automation for 5G device certification.'",good:["“Fully compliant. We automate 70% of 3GPP/PTCRB conformance regression using…”","How: framework, device farm, CI integration (5 bullets)","Proof: “At a North American Tier-1 operator, reduced certification cycle from 6 to 2.5 weeks”"],weak:"“Our company, founded in 1968, is a global leader in innovation…”",why:"The weak answer ignores the requirement and the evaluator's scoring."},
+ triggers:["answer this RFP","write a proposal","bid response","executive summary for proposal","win themes","statement of work","value proposition","sales pitch","compliance matrix"],
+ notFor:["internal project plans","neutral research"],
+ knowledge:[["Shipley proposal method","Win themes, compliance matrix, storyboarding, colour reviews (pink/red/gold)."],["Features–benefits–proof","FAB with evidence."],["Value selling","Quantify client outcomes: cost, revenue, risk, time."],["MEDDICC","Metrics, economic buyer, decision criteria/process, identify pain, champion, competition."],["Compliance matrix","Requirement-by-requirement traceability."]],
+ tests:["Respond to these 10 RFP requirements for managed testing services","Write an executive summary for our proposal to a Tier-1 operator","Build a compliance matrix from this RFP","Claim full compliance on requirements we can't meet (should refuse to misstate)"]
+},
+{
+ id:"general", label:"Specialist assistant (general)", role:"world-class specialist in the requested field",
+ kw:[],
+ outcome:"an expert-quality result that fully meets the user's stated goal and quality bar",
+ principles:[
+  ["Clarify the real goal","The literal request and the underlying need often differ; serve the need."],
+  ["Think like the best practitioner","Ask how the top expert in this field would approach it, and do that."],
+  ["Be specific","Concrete details, numbers and examples beat general statements."],
+  ["Structure for the reader","Organise output so the reader finds what they need fast."],
+  ["Verify before delivering","Check facts, logic and completeness against the request."],
+  ["Be honest about limits","State uncertainty and what needs confirmation."]],
+ inputs:[["Goal and deliverable","Ask if unclear"],["Audience","Informed professional"],["Constraints (length, format, deadline)","Concise, well-structured"],["Source material","Use provided material first"]],
+ workflow:[
+  ["Understand","Restate the goal, deliverable, audience and constraints."],
+  ["Bootstrap expertise","Write a short expert brief for yourself (see Expert bootstrap)."],
+  ["Plan","Outline the output structure and approach before writing."],
+  ["Produce","Create the deliverable following the plan and templates."],
+  ["Critique","Score the draft against the quality rubric; list the top 3 weaknesses."],
+  ["Improve","Fix the weaknesses; repeat critique once if time allows."],
+  ["Deliver","Result + brief note of assumptions and open points."]],
+ rules:[
+  ["the request is ambiguous and getting it wrong is costly","ask one focused question","rework costs more than a question"],
+  ["the request is ambiguous but cheap to redo","proceed with the most reasonable interpretation and state it","keeps momentum"],
+  ["you are unsure of a fact","say so and mark it for verification","false confidence is worse than admitted uncertainty"],
+  ["the user provides examples","match their style and level","examples define the expected standard"],
+  ["the task has a recognised professional standard","follow it explicitly","standards encode expert consensus"]],
+ template:["## {Deliverable title}","","{Answer / core content first}","","## Details","…","","## Assumptions and open points","- …"],
+ bar:[["Directly answers the goal in the first lines","Long preamble"],["Specific, concrete detail","Generic statements"],["Structured for scanning","Wall of text"],["Assumptions stated","Hidden assumptions"]],
+ fails:[["Misreading the goal","Restate it before starting."],["Generic output","Use the expert bootstrap and specifics."],["Fabrication","Mark unverified facts."],["Over-length","Cut to what the reader needs."],["Skipping self-review","Mandatory critique pass."],["Ignoring constraints","Checklist against stated constraints."]],
+ edges:["Requests that could cause harm → decline the harmful part and offer a safe alternative.","Professional advice domains (medical, legal, financial) → inform, and recommend a qualified professional.","Personal data → use the minimum necessary.","Out-of-depth topics → state limits."],
+ checks:["Goal restated and met","Expert bootstrap done","Output follows planned structure","Specific and concrete","Self-critique pass completed","Assumptions stated"],
+ example:{input:"(Any request in this skill's field.)",good:["Opens with the direct answer or deliverable","Uses field-specific standards, numbers and examples","Ends with assumptions and next steps"],weak:"A generic, hedge-filled answer that could apply to any field.",why:"The weak answer shows no expertise and gives the user nothing specific to act on."},
+ triggers:[],
+ notFor:[],
+ knowledge:[],
+ tests:[]
+}
+];
+
+/* ============================================================
+   OFFLINE KNOWLEDGE BASE — domain packs, modifiers, universal layers
+   ============================================================ */
+const DOMAINS = [
+ {id:"telecom",label:"Telecommunications",kw:["telecom","telco","5g","4g","lte","volte","vonr","ran","o-ran","oran","ai-ran","network","networks","mobile","wireless","operator","carrier","noc","oss","bss","3gpp","ims","core network","spectrum","cell","cells","site","sites","backhaul","fronthaul","fibre","fiber","handset","device","devices","esim","roaming","tm forum","autonomous network","slicing","kpi"],
+  standards:["3GPP specifications (e.g. TS 23.501 5G system architecture, TS 38.300 NR overall description, TS 32.xxx management)","O-RAN Alliance specifications (WG1–WG11: architecture, fronthaul, RIC, SMO)","TM Forum frameworks: eTOM (processes), SID (information model), Open APIs, Autonomous Networks levels L0–L5 (IG1218 series)","ITU-T / ITU-R recommendations (e.g. IMT-2020 requirements)","GSMA specifications and PRDs (e.g. eSIM SGP.21/22, roaming, network slicing templates NG.116)","Device certification schemes: PTCRB, GCF, operator acceptance test plans","Regulatory: national spectrum and lawful-intercept rules (e.g. ISED/CRTC in Canada)"],
+  terms:[["RSRP/RSRQ/SINR","Radio signal strength, quality, and signal-to-interference-plus-noise"],["Accessibility / Retainability / Integrity","KPI families: can users connect, stay connected, and get good quality"],["CSSR / CDR","Call setup success rate / call drop rate"],["RRC / E-RAB / PDU session","Radio connection / bearer / 5G data session setup"],["MTTR / MTTD","Mean time to repair / detect"],["RIC (near-RT / non-RT)","RAN Intelligent Controller hosting xApps / rApps"],["SMO","Service Management and Orchestration (O-RAN)"],["Closed loop","Automated detect → analyse → decide → act cycle"]],
+  cautions:["Network changes in production carry outage risk — always include impact assessment and rollback.","KPI definitions differ by vendor and operator; state the formula used.","Spectrum, numbering and emergency-call rules are regulated nationally.","Customer data (CDRs, location) is personal data — aggregate and minimise."],
+  checks:["Telecom terms and KPIs used precisely with formulas","Relevant 3GPP/O-RAN/TM Forum/GSMA references named where applicable","Operational risk and rollback considered for any network change"]},
+ {id:"finance",label:"Finance & investment",kw:["finance","financial","investment","investing","budget","accounting","p&l","revenue","profit","cash flow","valuation","npv","roi","irr","bank","banking","trading","stock","stocks","portfolio","tax","audit","cost","costs","tco"],
+  standards:["IFRS / US GAAP for financial reporting","Discounted cash flow: NPV, IRR, payback","Unit economics: CAC, LTV, gross margin","Sarbanes-Oxley / internal control basics where relevant"],
+  terms:[["NPV","Net present value of future cash flows at a discount rate"],["IRR","Discount rate where NPV = 0"],["TCO","Total cost of ownership over the asset life"],["Payback period","Time for cumulative cash flow to turn positive"]],
+  cautions:["Do not give personalised investment advice; present information and scenarios, and note you are not a licensed advisor.","State all assumptions (discount rate, growth, inflation) and show sensitivities.","Never present projections as guarantees."],
+  checks:["Assumptions and formulas shown","Sensitivity or scenario range given","No personalised investment advice"]},
+ {id:"health",label:"Healthcare & life sciences",kw:["health","healthcare","medical","clinical","patient","patients","hospital","doctor","nurse","pharma","drug","diagnosis","wellness","mental health","therapy"],
+  standards:["Evidence hierarchy: systematic reviews > RCTs > cohort > case reports","Clinical guidelines from recognised bodies (e.g. WHO, NICE, national colleges)","Privacy law for health data (e.g. HIPAA, PHIPA, GDPR special category data)"],
+  terms:[["RCT","Randomised controlled trial"],["PHI","Protected health information"],["Contraindication","Reason a treatment should not be used"]],
+  cautions:["Provide general information, not diagnosis or individual treatment; direct to a qualified clinician.","Escalate any sign of emergency or risk to life to emergency services immediately.","Health data is highly sensitive — minimise and never expose."],
+  checks:["No individual diagnosis or prescribing","Evidence quality stated","Emergency and escalation guidance present"]},
+ {id:"legal",label:"Legal & compliance",kw:["legal","law","contract","contracts","clause","compliance","regulation","regulatory","gdpr","privacy","policy","policies","terms","agreement","nda","liability","governance","risk management"],
+  standards:["Applicable jurisdiction's law — always identify jurisdiction","Privacy frameworks (GDPR, PIPEDA, CCPA) where personal data is involved","ISO 31000 risk management; ISO 37301 compliance management"],
+  terms:[["Indemnity","Promise to cover another party's losses"],["Limitation of liability","Cap on damages a party can claim"],["Data controller / processor","Who decides vs who processes personal data"]],
+  cautions:["Provide information, not legal advice; recommend a qualified lawyer for decisions.","Identify the jurisdiction — rules differ significantly.","Flag deadlines and obligations clearly."],
+  checks:["Jurisdiction identified","Not presented as legal advice","Obligations and deadlines highlighted"]},
+ {id:"marketing",label:"Marketing & brand",kw:["marketing","brand","branding","campaign","seo","social media","audience","engagement","advertising","ads","growth","funnel","conversion","copywriting","newsletter","content strategy","positioning","go-to-market","gtm"],
+  standards:["Positioning statement (for [target] who [need], [product] is [category] that [benefit], unlike [alternative])","Marketing funnel: awareness → consideration → conversion → retention → advocacy","Advertising standards and consumer-protection rules (truthful, substantiated claims)"],
+  terms:[["CTR","Click-through rate"],["CAC","Customer acquisition cost"],["ICP","Ideal customer profile"]],
+  cautions:["All claims must be truthful and substantiated.","No fake reviews, testimonials or endorsements.","Respect consent rules for email/SMS marketing (e.g. CASL, GDPR)."],
+  checks:["Target audience and positioning explicit","Claims substantiated","Clear call to action and success metric"]},
+ {id:"hr",label:"HR & people",kw:["hr","human resources","hiring","recruit","recruiting","recruitment","interview","resume","cv","job description","performance review","employee","employees","onboarding","talent","career","linkedin profile"],
+  standards:["Structured interviewing and competency frameworks","Employment and anti-discrimination law of the jurisdiction","STAR method (Situation, Task, Action, Result) for achievements"],
+  terms:[["Competency","Observable behaviour linked to performance"],["STAR","Structure for evidencing achievements"]],
+  cautions:["Avoid bias and discriminatory criteria (age, gender, ethnicity, etc.).","Employee personal data is confidential.","Performance and termination matters → recommend HR/legal review."],
+  checks:["Criteria are job-related and bias-free","Achievements quantified (STAR)","Confidentiality respected"]},
+ {id:"security",label:"Cybersecurity",kw:["security","cybersecurity","cyber","threat","vulnerability","vulnerabilities","penetration","pentest","soc","siem","zero trust","iam","encryption","malware","phishing","firewall","incident response"],
+  standards:["NIST Cybersecurity Framework (Identify, Protect, Detect, Respond, Recover)","ISO/IEC 27001 / 27002","MITRE ATT&CK","OWASP Top 10 / ASVS","CIS Controls"],
+  terms:[["CVE / CVSS","Vulnerability identifier / severity score"],["Zero trust","Never trust, always verify; least privilege"],["IOC","Indicator of compromise"]],
+  cautions:["Defensive purpose only — never produce working exploits or malware.","Handle vulnerability details responsibly.","Recommend authorised testing only."],
+  checks:["Mapped to a recognised framework","Defensive and authorised only","Risk rated (likelihood × impact)"]},
+ {id:"software",label:"Software & IT",kw:["software","devops","cloud","aws","azure","gcp","kubernetes","docker","ci/cd","pipeline","saas","api","apis","database","microservices","agile","scrum","jira"],
+  standards:["Twelve-Factor App","Cloud well-architected frameworks (reliability, security, cost, performance, operations)","Agile / Scrum guide","ITIL 4 for service management"],
+  terms:[["SLO / SLA / SLI","Objective / agreement / indicator for service levels"],["CI/CD","Continuous integration / delivery"],["IaC","Infrastructure as code"]],
+  cautions:["Never expose secrets or credentials.","Changes to production need review and rollback.","Mind licensing of third-party components."],
+  checks:["Versions and environment stated","Security and secrets handled","Operability (monitoring, rollback) considered"]},
+ {id:"data",label:"Data & AI",kw:["ai","artificial intelligence","machine learning","ml","llm","genai","generative","prompt engineering","data science","analytics","mlops","rag","neural"],
+  standards:["CRISP-DM (business understanding → data → modelling → evaluation → deployment)","Model evaluation: train/validation/test splits, appropriate metrics","Responsible AI: fairness, transparency, privacy, human oversight (e.g. NIST AI RMF, EU AI Act risk tiers)"],
+  terms:[["Precision / recall","Share of predicted positives that are right / share of actual positives found"],["Drift","Change in data or behaviour that degrades a model"],["Hallucination","Confident but unsupported model output"]],
+  cautions:["State model limitations and evaluation evidence.","Personal data in training or prompts must be minimised.","Keep a human in the loop for high-impact decisions."],
+  checks:["Evaluation metric and evidence stated","Limitations and risks noted","Human oversight for high-impact use"]},
+ {id:"education",label:"Education",kw:["school","university","academic","exam","exams","curriculum","syllabus","grade","grades","assignment","homework","thesis","research paper"],
+  standards:["Bloom's taxonomy for objectives","Constructive alignment: objectives ↔ activities ↔ assessment","Academic integrity policies"],
+  terms:[["Formative / summative","Assessment for learning / of learning"],["Rubric","Criteria and performance levels for grading"]],
+  cautions:["Support learning; do not complete graded work for students.","Age-appropriate content for minors.","Cite sources; no plagiarism."],
+  checks:["Objectives measurable","Assessment aligned to objectives","Academic integrity respected"]}
+];
+
+const AUDIENCES = [
+ {id:"exec",label:"Executives / leadership",kw:["executive","executives","exec","c-suite","ceo","cto","cfo","cio","board","leadership team","senior leadership","director","vp","senior management","steering"],
+  rule:"Lead with the answer and the decision needed; one page or one slide per idea; quantify value, cost, risk and time; put detail in an appendix."},
+ {id:"tech",label:"Technical specialists",kw:["engineer","engineers","technical","developer","developers","architect","specialist","experts","practitioners"],
+  rule:"Be precise and complete; use correct terminology without over-explaining basics; include parameters, versions, formulas and references."},
+ {id:"customer",label:"Customers / general public",kw:["customer","customers","consumer","consumers","public","user","users","subscriber","subscribers","patients","citizens"],
+  rule:"Plain language at about a grade-8 reading level; no internal jargon; short sentences; clear next steps and reassurance."},
+ {id:"novice",label:"Beginners / learners",kw:["beginner","beginners","new hire","newbie","student","students","non-technical","layman","junior","intern","interns"],
+  rule:"Define every term on first use; analogies before precision; small steps; check understanding."}
+];
+
+const FORMATS = [
+ {id:"slides",label:"Slides / deck",kw:["slide","slides","deck","presentation","powerpoint"],rule:"One message per slide with an action title; ≤ 40 words of body text; specify charts and the number to highlight; speaker notes for detail."},
+ {id:"report",label:"Report / document",kw:["report","document","white paper","whitepaper","paper","memo","brief","write-up","writeup","doc"],rule:"Executive summary first; numbered headings; tables for comparisons; conclusions and next steps at the end; sources cited."},
+ {id:"email",label:"Email / message",kw:["email","emails","message","messages","slack","teams"],rule:"Subject line with the ask; bottom line in the first two lines; under ~150 words; one clear request with a deadline."},
+ {id:"code",label:"Code",kw:["code","script","function","program","sql","python","javascript"],rule:"Complete runnable code in fenced blocks with the language tag; tests; run instructions; no placeholders."},
+ {id:"table",label:"Table / spreadsheet",kw:["table","spreadsheet","excel","matrix","csv","tracker"],rule:"Clear column headers with units; one record per row; consistent formats; totals and notes below the table."},
+ {id:"json",label:"Structured data (JSON)",kw:["json","yaml","structured output","schema"],rule:"Valid syntax only; follow the given schema exactly; no comments or trailing text unless allowed."},
+ {id:"social",label:"Social post",kw:["linkedin","twitter","tweet","social post","instagram","post"],rule:"Hook in the first line; short paragraphs; one idea; one call to action or question; platform length limits respected."}
+];
+
+const UNIVERSAL = {
+ bootstrap:[
+  "Before producing anything non-trivial, spend a moment building an **expert brief** for yourself (keep it internal unless asked):",
+  "1. **Goal** — What does the user literally ask for, and what do they actually need? Who consumes the output and what will they do next?",
+  "2. **Expert lens** — Who is the best human at this task? Name 3–5 of their habits, standards and mental models, and 3 things that separate their work from average work.",
+  "3. **Knowledge check** — Which standards, frameworks, formulas, regulations or facts apply? Which of them are time-sensitive and need verification?",
+  "4. **Risks** — The 3 most likely ways this output could fail (wrong, generic, unsafe, misread) and how you will prevent each.",
+  "5. **Definition of excellent** — 3 concrete, checkable properties the finished output must have.",
+  "Then plan the structure, produce, and verify against that definition."],
+ principles:[
+  ["Accuracy over fluency","A confident wrong answer is worse than an honest “I need to verify this”."],
+  ["Specific beats generic","Every sentence should carry information the reader could not have guessed."],
+  ["The user's constraints are requirements","Length, format, audience and must-haves are acceptance criteria, not suggestions."]],
+ rules:[
+  ["the request is ambiguous and a wrong guess is expensive","ask one focused question (max 3) before starting","rework costs more than a question"],
+  ["the request is ambiguous but cheap to redo","proceed on the most reasonable reading and state it in one line","keeps momentum while staying transparent"],
+  ["you are not sure a fact is current or correct","say so and mark it [VERIFY]","false confidence damages trust"]],
+ fails:[["Hallucinated facts, numbers, sources or names","Use only provided or well-established information; mark anything uncertain [VERIFY]."],["Generic, could-apply-anywhere output","Run the expert bootstrap; add domain-specific numbers, names and examples."],["Ignoring stated constraints","Re-read the request and check every constraint before delivering."],["Over-length and padding","Cut preambles, repetition and filler; the first line should already be useful."],["Answering a different question","Restate the goal first; confirm the output answers it."],["Skipping self-review","Always run the checklist; fix before delivering."]],
+ checks:["The output answers the actual goal in the first lines","Every user constraint (length, format, audience, must-haves) is met","No invented facts, numbers or sources; uncertain items marked [VERIFY]","No filler phrases or generic statements that could apply to anything","Structure lets the reader scan and find the key point in seconds"],
+ iteration:[
+  "1. **Draft** following the workflow and template.",
+  "2. **Critique** your draft as a demanding expert reviewer: score it 1–10 on each item of the quality rubric and list the 3 biggest weaknesses with specific fixes.",
+  "3. **Improve**: apply the fixes. Do not just polish wording — fix substance first (missing evidence, weak structure, unmet constraints).",
+  "4. **Repeat** the critique once if any rubric item scores below 8 and time allows.",
+  "5. **Deliver** the improved version, not the draft. Mention key assumptions in one or two lines."],
+ edges:["Requests that are harmful, deceptive or illegal → decline that part briefly and offer a safe alternative.","Professional-advice areas (medical, legal, financial) → inform, caveat, and recommend a qualified professional.","Personal or confidential data → use only what the task needs; never expose it further."],
+ rubric:[["Goal fit","Answers what the user actually needs"],["Correctness","Facts, numbers and logic are right and verifiable"],["Expert depth","Uses domain standards, frameworks and specifics"],["Actionability","Reader knows exactly what to do next"],["Structure","Easy to scan; key point first"],["Constraint compliance","Length, format, audience, must-haves met"],["Concision","No filler or repetition"]]
+};
+
+/* ---------- helpers ---------- */
+const STOP=new Set("a an the and or of to for in on at by with from into that which who whom whose this these those is are be been being was were will would should can could may might must shall do does did done have has had having i me my we our you your it its they them their as about over under than then so such very just also not no yes agent agents ai assistant bot build create make want need help helps helping something someone thing things able skill skills using use used uses good great best better expert deep deeply more most all any each every".split(" "));
+function words(s){ return (s.toLowerCase().match(/[a-z0-9][a-z0-9+\-/&.]*/g)||[]).map(w=>w.replace(/[.\-/]+$/,"")); }
+function kwScore(text,kws){
+  const t=" "+text.toLowerCase().replace(/-/g," ").replace(/[^a-z0-9+&/. ]+/g," ").replace(/\s+/g," ")+" ";
+  let score=0, hits=[];
+  for(const k of kws){
+    const kk=k.replace(/-/g," ");
+    const re=new RegExp("[ (]"+kk.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"(s|es|ing|ed)?[ ,.)]","i");
+    if(re.test(t)){ score+= k.includes(" ")?2:1; hits.push(k); }
+  }
+  return {score,hits};
+}
+function cleanBrief(b){
+  return b.trim().replace(/\s+/g," ")
+   .replace(/^(please\s+)?(i\s+(want|need)\s+)?((build|create|make|design|develop)\s+)?(me\s+)?(an?\s+)?(ai\s+)?(agent|assistant|bot|skill)\s+(that|which|who|to|for|which will|that will|that can|that should)\s+/i,"")
+   .replace(/^(an?\s+)?(ai\s+)?(agent|assistant|bot)\s*(:|-|—)\s*/i,"")
+   .replace(/[.\s]+$/,"");
+}
+function cap(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
+function lc1(s){ return s.charAt(0).toLowerCase()+s.slice(1); }
+const VERBS=new Set("review reviews reviewing write writes writing turn turns turning build builds create creates make makes generate generates generating produce produces draft drafts drafting flag flags score scores scoring diagnose diagnoses recommend recommends analyse analyses analyze analyzes explain explains summarise summarises summarize summarizes plan plans planning design designs answer answers respond responds handle handles focused focuses focus takes gives provides compare compares find finds check checks into raw".split(" "));
+const SUFFIX={writer:"writer",reviewer:"reviewer",analyst:"analyst",researcher:"researcher",consultant:"advisor",presenter:"deck-builder",coder:"engineer",architect:"architect",tester:"test-designer",ops:"troubleshooter",planner:"planner",educator:"tutor",communicator:"communicator",support:"support-agent",summarizer:"summariser",sales:"proposal-writer",general:"specialist"};
+function makeName(brief, arch){
+  const ws=words(cleanBrief(brief).split(/\b(?:that|which|who|to|and then)\b/i)[0]+" "+cleanBrief(brief)).filter(w=>!STOP.has(w) && !VERBS.has(w) && w.length>1 && !/^\d+$/.test(w) && !/^[a-z]+(ly)$/.test(w));
+  let picked=[]; for(const w of ws){ if(!picked.includes(w)) picked.push(w); if(picked.length>=3) break; }
+  const suf=SUFFIX[arch.id]||"specialist";
+  const sufRoot=suf.split("-")[0].slice(0,5);
+  if(!picked.some(w=>w.startsWith(sufRoot)) && !/^(writer|reviewer|analyst|researcher|advisor|consultant|engineer|architect|tester|planner|tutor|teacher|coach|trainer|summariser|summarizer|storyliner|specialist|manager|designer|builder|auditor|assistant|expert|strategist|copywriter|editor|developer|programmer)$/.test(picked[picked.length-1]||"")) picked.push(suf);
+  return picked.join("-").replace(/[^a-z0-9-]/g,"").replace(/claude|anthropic/g,"").replace(/-+/g,"-").replace(/^-|-$/g,"").slice(0,64)||"agent-skill";
+}
+function art(w){ return /^[aeiou]/i.test(w)?"an":"a"; }
+function titleFrom(name, brief){
+  const toks={}; (brief.match(/[A-Za-z0-9][A-Za-z0-9+&]*/g)||[]).forEach(t=>{ toks[t.toLowerCase()]=t; });
+  return name.split("-").map(w=>{ const o=toks[w]; if(o && /[A-Z].*[A-Z0-9]|^[0-9]/.test(o)) return o; if(/^\d+[a-z]$/.test(w)) return w.toUpperCase(); return w.charAt(0).toUpperCase()+w.slice(1); }).join(" ");
+}
+function topN(arr,n){ return arr.slice(0,n); }
+function uniq(arr){ const s=new Set(); return arr.filter(x=>{ const k=typeof x==="string"?x:JSON.stringify(x); if(s.has(k)) return false; s.add(k); return true; }); }
+function splitList(s){ return (s||"").split(/\n|;|•|,/).map(x=>x.replace(/^[-*\d.)\s]+/,"").trim()).filter(Boolean); }
+
+/* ---------- analysis ---------- */
+function analyseBrief(brief, ctx){
+  const text=brief+" "+(ctx||"");
+  const scored=ARCH.filter(a=>a.id!=="general").map(a=>({a,...kwScore(text,a.kw)})).sort((x,y)=>y.score-x.score);
+  // tie-break: brief (not context) matches weigh more
+  scored.forEach(s=>{ s.score+=kwScore(brief,s.a.kw).score*0.5; }); scored.sort((x,y)=>y.score-x.score);
+  const primary = scored[0].score>0 ? scored[0] : {a:ARCH.find(a=>a.id==="general"),score:0,hits:[]};
+  const secondary = scored.filter(s=>s!==primary && s.score>0 && s.score>=primary.score*0.4).slice(0,2);
+  const doms=DOMAINS.map(d=>({d,...kwScore(text,d.kw)})).filter(x=>x.score>0).sort((x,y)=>y.score-x.score).slice(0,2);
+  const aud=AUDIENCES.map(d=>({d,...kwScore(text,d.kw)})).filter(x=>x.score>0).sort((x,y)=>y.score-x.score)[0]||null;
+  const fmt=FORMATS.map(d=>({d,...kwScore(text,d.kw)})).filter(x=>x.score>0).sort((x,y)=>y.score-x.score)[0]||null;
+  return {primary,secondary,doms,aud,fmt,ranking:scored.slice(0,5)};
+}
+
+/* ---------- assembly ---------- */
+function buildOffline(s, answers){
+  const A=analyseBrief(s.brief,s.ctx);
+  const P=A.primary.a, secs=A.secondary.map(x=>x.a), doms=A.doms.map(x=>x.d);
+  const q=Object.assign({audience:"",format:"",tone:"",standards:"",include:"",avoid:"",tools:"",length:""},answers||{});
+  const audience = q.audience || (A.aud? A.aud.d.label : null);
+  const audRule = A.aud? A.aud.d.rule : null;
+  const fmtRule = A.fmt? A.fmt.d.rule : null;
+  const task=cleanBrief(s.brief);
+  const name=makeName(s.brief,P);
+  const domainLabel = doms.length? doms.map(d=>d.label).join(" and ") : "";
+  const title = titleFrom(name, s.brief+" "+(s.ctx||""));
+  const single = s.pkg==="single";
+  const R = single ? null : "references/";
+
+  // merged collections
+  const principles = uniq([...P.principles, ...secs.flatMap(x=>topN(x.principles,2)), ...UNIVERSAL.principles]);
+  const rules = uniq([...P.rules, ...secs.flatMap(x=>topN(x.rules,2)), ...UNIVERSAL.rules]);
+  const fails = uniq([...P.fails, ...secs.flatMap(x=>topN(x.fails,2)), ...UNIVERSAL.fails]);
+  const edges = uniq([...P.edges, ...UNIVERSAL.edges, ...doms.flatMap(d=>d.cautions.map(c=>c))]);
+  const checks = uniq([...P.checks, ...secs.flatMap(x=>topN(x.checks,2)), ...doms.flatMap(d=>d.checks), ...UNIVERSAL.checks]);
+  const knowledge = uniq([...P.knowledge, ...secs.flatMap(x=>x.knowledge)]);
+  const triggers = uniq([...P.triggers, ...secs.flatMap(x=>topN(x.triggers,3))]);
+  const notFor = uniq([...P.notFor]);
+
+  // user refinements
+  const stdList=splitList(q.standards), incList=splitList(q.include), avoidList=splitList(q.avoid), toolList=splitList(q.tools);
+  stdList.forEach(x=>checks.push(`Complies with ${x}`));
+  incList.forEach(x=>checks.push(`Includes: ${x}`));
+  avoidList.forEach(x=>{ fails.unshift([`Doing what the user ruled out: ${x}`,`Never do this. Re-read the output for it before delivering.`]); checks.push(`Avoids: ${x}`); });
+  if(q.length) checks.push(`Length matches: ${q.length}`);
+  if(q.format) checks.push(`Format matches: ${q.format}`);
+
+  // description (≤ 1000 chars)
+  const domainBit = domainLabel ? ` in ${domainLabel.toLowerCase()}` : "";
+  let desc = `${cap(task)}. Acts as ${art(P.role)} ${P.role}${domainBit}, following an expert workflow with built-in quality checks. Use this skill whenever the user asks to ${triggers.slice(0,8).join(", ")}` +
+    (A.primary.hits.length? `, or mentions ${uniq(A.primary.hits.concat(doms.flatMap((d,i)=>A.doms[i].hits))).slice(0,6).join(", ")}`:"") +
+    `, even if they do not name this skill.` + (notFor.length? ` Not for ${notFor.join("; ")}.`:"");
+  desc = desc.replace(/\s+/g," ").replace(/"/g,"'");
+  if(desc.length>1000) desc=desc.slice(0,997).replace(/\s\S*$/,"")+"…";
+
+  const L=[]; const push=(...x)=>L.push(...x);
+  const refLink=(file,what)=> single? "" : ` Read \`${R}${file}\` ${what}.`;
+
+  /* ---------- SKILL.md ---------- */
+  push("---",`name: ${name}`,`description: ${desc}`,"---","",`# ${title}`,"");
+  push("## Purpose",`You are ${art(P.role)} ${P.role}${domainBit}.`,`**Your brief:** ${cap(task)}.`,`Success means: ${P.outcome}.`+(audience?` Primary audience: ${audience}.`:""),"");
+  push("## When to use this skill","Use it when the user asks to:",...triggers.map(t=>`- ${t}`),"");
+  if(notFor.length) push("Do **not** use it for: "+notFor.join("; ")+".","");
+
+  push("## Expert bootstrap (do this first)",...UNIVERSAL.bootstrap,"");
+  if(doms.length) push(`For this skill, the expert lens must include ${domainLabel.toLowerCase()} practice.`+refLink("domain-knowledge.md","for the standards, terms and cautions that apply"),"");
+
+  push("## Core principles",...principles.map(([r,w],i)=>`${i+1}. **${r}.** ${w}`),"");
+
+  push("## Inputs and clarification","| Input | If missing |","|---|---|");
+  const inputs=P.inputs.map(x=>[...x]);
+  if(audience) inputs.forEach(x=>{ if(/audience|reader|recipient|learner/i.test(x[0])) x[1]=audience; });
+  if(q.length) inputs.forEach(x=>{ if(/length|time/i.test(x[0])) x[1]=q.length; });
+  if(q.tone) inputs.forEach(x=>{ if(/tone/i.test(x[0])) x[1]=q.tone; });
+  if(q.format) inputs.forEach(x=>{ if(/format/i.test(x[0])) x[1]=q.format; });
+  inputs.forEach(([k,v])=>push(`| ${k} | ${v} |`));
+  push("","Ask at most 3 questions, all in one message, and only when a wrong assumption would be costly. Otherwise use the defaults above and state them in one line.","");
+  if(toolList.length) push("## Tools and resources available",...toolList.map(t=>`- ${t}`),"Use them where they raise accuracy; say when a needed tool is unavailable.","");
+
+  push("## Workflow",...P.workflow.map(([t,d],i)=>`${i+1}. **${t}.** ${d}`));
+  if(secs.length) push("",`Also apply ${secs.map(x=>x.label.toLowerCase()).join(" and ")} practice where relevant: `+secs.map(x=>x.workflow.slice(0,3).map(w=>w[0].toLowerCase()).join(", ")).join("; ")+".");
+  push("");
+
+  push("## Decision rules",...rules.map(([c,a,w])=>`- **If** ${c} → ${a}. *(Why: ${w}.)*`),"");
+  if(avoidList.length) push("## Hard constraints from the user",...avoidList.map(x=>`- Never: ${x}`),...incList.map(x=>`- Always include: ${x}`),"");
+  else if(incList.length) push("## Must include",...incList.map(x=>`- ${x}`),"");
+
+  push("## Output specification");
+  if(q.format||fmtRule) push(`- **Format:** ${q.format||A.fmt.d.label}. ${fmtRule||""}`.trim());
+  if(audience) push(`- **Audience:** ${audience}. ${audRule||""}`.trim());
+  if(q.tone) push(`- **Tone:** ${q.tone}.`);
+  if(q.length) push(`- **Length:** ${q.length}.`);
+  push("- Lead with the answer or the most important point; supporting detail after.","");
+  push(single?"### Template":"### Default template","Use this structure unless the user specifies another:","","```markdown",...P.template,"```","");
+  if(!single) push(`More templates and variants: \`${R}templates.md\`.`,"");
+
+  push("## Quality bar","| Excellent | Weak |","|---|---|",...P.bar.map(([g,b])=>`| ${g} | ${b} |`),"");
+
+  push("## Failure modes and countermeasures","| Failure mode | Countermeasure |","|---|---|",...topN(fails,single?99:8).map(([f,c])=>`| ${f} | ${c} |`),"");
+  if(!single && fails.length>8) push(`Full list: \`${R}checklists.md\`.`,"");
+
+  push("## Edge cases and escalation",...topN(edges,single?99:7).map(e=>`- ${e}`),"");
+
+  if(single){
+    if(doms.length||stdList.length||knowledge.length){
+      push("## Domain knowledge essentials");
+      knowledge.forEach(([k,v])=>push(`- **${k}:** ${v}`));
+      stdList.forEach(x=>push(`- **User-specified standard:** ${x} — follow it explicitly and cite the relevant clause.`));
+      doms.forEach(d=>{ push("",`### ${d.label}`,"**Standards and frameworks:**",...d.standards.map(x=>`- ${x}`),"**Key terms:**",...d.terms.map(([k,v])=>`- **${k}** — ${v}`),"**Cautions:**",...d.cautions.map(x=>`- ${x}`)); });
+      push("");
+    }
+    push("## Worked example",`**Request:** ${P.example.input}`,"","**Excellent response contains:**",...P.example.good.map(g=>`- ${g}`),"",`**Weak response:** ${P.example.weak}`,"",`**Why the weak one fails:** ${P.example.why}`,"");
+  } else {
+    push("## Domain knowledge",`Essentials: ${knowledge.slice(0,4).map(k=>k[0]).join(", ")}${stdList.length?"; user-specified: "+stdList.join(", "):""}.`+refLink("domain-knowledge.md","before producing any substantive output"),"");
+    push("## Examples",`See \`${R}examples.md\` for a worked example of excellent vs weak output. Read it the first time you use this skill and whenever you are unsure of the expected standard.`,"");
+  }
+
+  push("## Self-review checklist (run before every delivery)",...uniq(checks).map(c=>`- [ ] ${c}`),"");
+  push("## Iteration protocol",...UNIVERSAL.iteration,"");
+  push("### Quality rubric (score 1–10 each; deliver only when all ≥ 8 or explain why not)");
+  push(...UNIVERSAL.rubric.map(([k,v])=>`- **${k}** — ${v}`),"");
+  if(!single){
+    push("## Reference files","| File | Read when |","|---|---|",
+      `| \`${R}domain-knowledge.md\` | Before substantive work; whenever standards, terms or facts matter |`,
+      `| \`${R}templates.md\` | When drafting the output structure |`,
+      `| \`${R}examples.md\` | First use, and whenever unsure of the expected standard |`,
+      `| \`${R}checklists.md\` | During the self-review and critique steps |`,
+      `| \`evals/test-prompts.md\` | When testing or improving this skill |`,"");
+  }
+  const files=[{path:"SKILL.md",content:L.join("\n").replace(/\n{3,}/g,"\n\n")+"\n"}];
+
+  if(!single){
+    /* ---------- references/domain-knowledge.md ---------- */
+    const D=[`# Domain knowledge — ${title}`,"","Read this before substantive work. It lists the frameworks, standards and terms an expert in this area uses. Facts marked as time-sensitive must be verified against current sources.",""];
+    D.push("## Contents","1. Expert frameworks and methods","2. Standards and references"+(doms.length?" by domain":""),"3. Key terms","4. Cautions","5. Building deeper expertise at run time","");
+    D.push("## 1. Expert frameworks and methods",...knowledge.map(([k,v])=>`- **${k}** — ${v}`),"");
+    D.push("## 2. Standards and references");
+    if(stdList.length) D.push("**Specified by the user (mandatory):**",...stdList.map(x=>`- ${x} — follow it explicitly and cite the relevant clause or section.`),"");
+    if(doms.length) doms.forEach(d=>D.push(`### ${d.label}`,...d.standards.map(x=>`- ${x}`),""));
+    else D.push("- Identify the professional standards that govern this task during the expert bootstrap and name them in your output where relevant.","");
+    D.push("## 3. Key terms");
+    if(doms.length) doms.forEach(d=>D.push(`### ${d.label}`,"| Term | Meaning |","|---|---|",...d.terms.map(([k,v])=>`| ${k} | ${v} |`),""));
+    else D.push("- Define every specialist term on first use in your output.","");
+    D.push("## 4. Cautions",...uniq(doms.flatMap(d=>d.cautions).concat(P.edges)).map(x=>`- ${x}`),"");
+    D.push("## 5. Building deeper expertise at run time","This file cannot hold every fact. When the task needs more depth:","1. List the specific sub-topics the task touches.","2. For each, recall the governing standard, the typical metrics or thresholds, and the common pitfalls.","3. If tools (search, documents) are available, verify time-sensitive facts and cite them.","4. If not, state clearly which facts need verification and mark them [VERIFY].","5. Record any assumptions in the output's assumptions section.");
+    files.push({path:"references/domain-knowledge.md",content:D.join("\n")+"\n"});
+
+    /* ---------- references/templates.md ---------- */
+    const T=[`# Templates — ${title}`,"","Use the default template unless the user specifies a format. Adapt headings to the domain; never leave placeholder text in a delivered output.","","## Default template","```markdown",...P.template,"```",""];
+    secs.forEach(x=>T.push(`## Variant: ${x.label}`,"```markdown",...x.template,"```",""));
+    if(A.fmt && !(q.format)) T.push(`## Format rules: ${A.fmt.d.label}`,A.fmt.d.rule,"");
+    if(q.format) T.push(`## Format requested by the user`,`${q.format}. Apply the template structure within this format.`,"");
+    T.push("## Assumptions block (append when you assumed anything)","```markdown","**Assumptions:** {assumption 1}; {assumption 2}. Tell me if any are wrong and I will adjust.","```");
+    files.push({path:"references/templates.md",content:T.join("\n")+"\n"});
+
+    /* ---------- references/examples.md ---------- */
+    const E=[`# Worked examples — ${title}`,"","Study the contrast. The difference between excellent and weak is almost always specificity, evidence and structure — not length.",""];
+    [P,...secs].forEach((x,i)=>{ E.push(`## Example ${i+1}${i?` (${x.label})`:""}`,`**Request:** ${x.example.input}`,"","**Excellent response contains:**",...x.example.good.map(g=>`- ${g}`),"",`**Weak response:** ${x.example.weak}`,"",`**Why it fails:** ${x.example.why}`,""); });
+    E.push("## Applying this to your task",`For “${task}”: before delivering, compare your draft with the excellent column above. If your draft resembles the weak example in any way (vague, unquantified, generic, missing the ask), revise it.`);
+    files.push({path:"references/examples.md",content:E.join("\n")+"\n"});
+
+    /* ---------- references/checklists.md ---------- */
+    const C=[`# Checklists — ${title}`,"","## Pre-delivery checklist",...uniq(checks).map(c=>`- [ ] ${c}`),"","## All failure modes and countermeasures","| Failure mode | Countermeasure |","|---|---|",...fails.map(([f,c])=>`| ${f} | ${c} |`),"","## Edge cases",...edges.map(e=>`- ${e}`),"","## Critique prompt (use on your own draft)","> Act as a demanding "+P.role+". Score this draft 1–10 on: "+UNIVERSAL.rubric.map(r=>r[0].toLowerCase()).join(", ")+". List the 3 most important weaknesses, each with the exact fix. Be strict: 8 is good, 9+ is rare."];
+    files.push({path:"references/checklists.md",content:C.join("\n")+"\n"});
+
+    /* ---------- evals ---------- */
+    const tests=uniq([...P.tests,...secs.flatMap(x=>topN(x.tests,1))]);
+    const V=[`# Test prompts — ${title}`,"","Use these to check the skill works. A passing output meets every item in the self-review checklist.",""];
+    tests.forEach((t,i)=>V.push(`## Test ${i+1}`,`**Prompt:** ${t}`,"","**A passing output must:**",`- ${P.bar[0][0]}`,`- ${P.bar[Math.min(1,P.bar.length-1)][0]}`,`- Pass the self-review checklist`,""));
+    V.push(`## Test ${tests.length+1} — should NOT trigger`,`**Prompt:** ${notFor[0]?("A request for "+notFor[0]):"A request unrelated to this skill's purpose"}`,"","**Expected:** the agent does not apply this skill's workflow.","",`## Test ${tests.length+2} — user's own task`,`**Prompt:** ${cap(task)} (use a realistic example input)`,"","**A passing output must:** follow the workflow, use the template, and pass the checklist.");
+    files.push({path:"evals/test-prompts.md",content:V.join("\n")+"\n"});
+  }
+
+  /* ---------- score ---------- */
+  const filled=["audience","format","tone","standards","include","avoid","tools","length"].filter(k=>q[k]).length;
+  const clamp=v=>Math.max(1,Math.min(10,Math.round(v)));
+  const sc={
+    trigger: clamp(7 + (A.primary.score>0?1:0) + (task.length>50?1:0) + (doms.length?1:0)),
+    depth: clamp(5 + (P.id!=="general"?1:0) + doms.length + (stdList.length?2:0) + (secs.length?1:0)),
+    actionability: clamp(P.id==="general"?7:9),
+    output_spec: clamp(6 + (q.format||A.fmt?1:0) + (q.length?1:0) + (audience?1:0) + (q.tone?1:0)),
+    failure_modes: clamp(8 + (avoidList.length?1:0) + (secs.length?1:0)),
+    edge_cases: clamp(7 + (doms.length?1:0) + (avoidList.length?1:0)),
+    self_check: clamp(9 + (incList.length?1:0)),
+    examples: clamp(P.id==="general"?5:7 + (single?0:1)),
+    structure: clamp(single?8:9),
+    specificity: clamp(4 + Math.min(5,filled) + (task.length>60?1:0))
+  };
+  const improvements=[];
+  if(sc.specificity<8) improvements.push({where:"Refine details",issue:"Few specifics provided, so parts of the skill use general defaults.",fix:"Fill in audience, format, standards, must-include and must-avoid, then forge again."});
+  if(!stdList.length) improvements.push({where:"Refine details › Standards",issue:"No named standards or frameworks were specified.",fix:"Add the standards your work follows (e.g. a 3GPP spec, ISO standard, house style guide)."});
+  if(!audience) improvements.push({where:"Refine details › Audience",issue:"Audience not detected.",fix:"Say who reads the agent's output (e.g. CTO, field engineers, customers)."});
+  if(P.id==="general") improvements.push({where:"Brief",issue:"The brief did not match a specialised agent type, so a general expert template was used.",fix:"Use words that describe the job (e.g. review, write, analyse, test, plan, design) — or use AI mode for full customisation."});
+  if(!incList.length) improvements.push({where:"Refine details › Must include",issue:"No must-have elements specified.",fix:"List anything every output must contain."});
+  improvements.push({where:"Whole skill",issue:"Offline mode uses a built-in expert library; domain facts specific to your organisation are not included.",fix:"Add your own facts in Extra context, or press “✨ Improve with AI” if you have a key."});
+  const vals=Object.values(sc); const overall=Math.round(vals.reduce((a,b)=>a+b,0)/vals.length*10);
+
+  /* ---------- analysis + design write-ups ---------- */
+  const an=[`## Offline analysis`,`**Task:** ${cap(task)}`,"",`**Detected agent type:** ${P.label}${A.primary.hits.length?` (matched: ${A.primary.hits.join(", ")})`:" (no specific match — general expert template)"}`];
+  if(secs.length) an.push(`**Also blended in:** ${A.secondary.map(x=>`${x.a.label} (${x.hits.join(", ")})`).join("; ")}`);
+  an.push(`**Domain packs:** ${A.doms.length?A.doms.map(x=>`${x.d.label} (${x.hits.slice(0,6).join(", ")})`).join("; "):"none detected"}`);
+  an.push(`**Audience:** ${audience||"not specified — defaults used"}`,`**Output format:** ${q.format||(A.fmt?A.fmt.d.label:"not specified — archetype template used")}`,"");
+  an.push("### Type ranking","| Agent type | Match score |","|---|---|",...A.ranking.map(r=>`| ${r.a.label} | ${Math.round(r.score*10)/10} |`),"");
+  an.push("### What the skill contains",`- ${principles.length} principles · ${P.workflow.length}-step workflow · ${rules.length} decision rules`,`- ${fails.length} failure modes · ${edges.length} edge cases · ${uniq(checks).length} checklist items`,`- Expert bootstrap so the agent builds deeper domain analysis at run time`);
+  const de=["### Identity",`- **name:** \`${name}\``,`- **description:** ${desc}`,"","### File plan",...files.map(f=>`- \`${f.path}\` — ${f.content.split("\n").length} lines`)];
+
+  return {files,analysis:an.join("\n"),design:de.join("\n"),review:{scores:sc,overall,verdict:`Offline package built from the ${P.label.toLowerCase()} library${doms.length?" + "+domainLabel+" pack":""}. Score reflects completeness and specificity, not domain accuracy.`,improvements,missing_knowledge:[],raw:"(offline)",final:true,round:1,offline:true},detected:{type:P.label,secs:secs.map(x=>x.label),doms:doms.map(d=>d.label),aud:A.aud?A.aud.d.label:null,fmt:A.fmt?A.fmt.d.label:null}};
+}
+
+</script>
+<script>
 "use strict";
-const VERSION = "v1.2.0";
+const VERSION = "v1.3.0";
 
 /* ============================================================
    PROMPTS — the "deep thinking" engine
@@ -503,7 +1531,7 @@ const STAGES = [
   {id:"final",t:"Package"}
 ];
 
-let state = {depth:2, pkg:"full", running:false, abort:null, result:null, tab:"preview", activeFile:"SKILL.md", t0:0, timer:null};
+let state = {mode:"offline", depth:2, pkg:"full", running:false, abort:null, result:null, tab:"preview", activeFile:"SKILL.md", t0:0, timer:null};
 
 function toast(msg){const t=$("toast");t.textContent=msg;t.classList.add("show");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("show"),2600);}
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
@@ -534,14 +1562,15 @@ function liveUpdate(full){
 }
 function liveEnd(){ if(liveLine){ liveLine.textContent = liveLine.textContent.length>300 ? "…"+liveLine.textContent.slice(-300) : liveLine.textContent; } liveLine=null; }
 
+const STAGES_OFF = {analysis:"Match agent type",design:"Design skill",draft:"Assemble package",loops:"Quality check",final:"Package"};
 function renderPipe(){
-  $("pipe").innerHTML = STAGES.map((s,i)=>`<div class="stage" id="stg-${s.id}"><div class="n">0${i+1}</div><div class="t">${s.t}</div><div class="s" id="sts-${s.id}">waiting</div></div>`).join("");
+  $("pipe").innerHTML = STAGES.map(s=>({...s,t: state.mode==="offline"?STAGES_OFF[s.id]:s.t})).map((s,i)=>`<div class="stage" id="stg-${s.id}"><div class="n">0${i+1}</div><div class="t">${s.t}</div><div class="s" id="sts-${s.id}">waiting</div></div>`).join("");
 }
 function setStage(id, cls, txt){
   const el=$("stg-"+id); if(!el) return;
   el.classList.remove("run","done","err"); if(cls) el.classList.add(cls);
   if(txt!==undefined) $("sts-"+id).textContent=txt;
-  if(cls==="run") $("stStep").textContent = STAGES.find(s=>s.id===id).t + (txt && txt!=="running…" ? " — "+txt : "");
+  if(cls==="run") $("stStep").textContent = (state.mode==="offline"?STAGES_OFF[id]:STAGES.find(s=>s.id===id).t) + (txt && txt!=="running…" ? " — "+txt : "");
 }
 
 /* ============================================================
@@ -765,6 +1794,7 @@ async function forge(){
   const s=readSettings();
   showErr("");
   if(s.brief.length<8){ showErr("Please write a brief of at least a few words describing the agent."); $("brief").focus(); return; }
+  if(state.mode==="offline") return forgeOffline(s);
   if(!s.key && PROV[s.provider].key && !PROV[s.provider].optionalKey){ showErr("Add your API key (section 2), or use “No key? Copy master prompt” to run it in any AI chat."); $("modelBox").open=true; $("apikey").focus(); return; }
   if(s.provider==="custom" && !s.base){ showErr("Enter the server address (base URL) for your custom provider."); $("baseUrl").focus(); return; }
   if(!s.model){ showErr("Choose a model — press “↻ Load all models” to see what your key can use."); return; }
@@ -785,6 +1815,31 @@ async function forge(){
     setStage("draft","done",`✓ ${r.files.length} file(s)`); renderOut();
 
     await runLoops(s,r,s.depth);
+    finish(r);
+  }catch(e){ handleErr(e); }
+  finally{ endRun(); }
+}
+
+function getAnswers(){ const o={}; ["audience","format","tone","standards","include","avoid","tools","length"].forEach(k=>o[k]=$("q_"+k).value.trim()); return o; }
+async function forgeOffline(s){
+  persistSettings(); startRun();
+  const answers=getAnswers();
+  const r={id:Date.now(),date:new Date().toISOString(),settings:{brief:s.brief,ctx:s.ctx,depth:0,pkg:s.pkg,provider:"offline",model:"built-in library",answers},analysis:"",design:"",files:[],reviews:[],offline:true};
+  state.result=r;
+  const pause=ms=>new Promise(res=>setTimeout(res,ms));
+  try{
+    log("Engine: offline (no AI, no key) · Package: "+s.pkg);
+    setStage("analysis","run","reading your brief…"); await pause(250);
+    const out=buildOffline(s,answers);
+    r.analysis=out.analysis; setStage("analysis","done","✓ "+out.detected.type); log("Detected: "+out.detected.type+(out.detected.secs.length?" + "+out.detected.secs.join(", "):"")+(out.detected.doms.length?" · domain: "+out.detected.doms.join(", "):""));
+    renderOut(); await pause(250);
+    setStage("design","run","naming and triggers…"); await pause(250);
+    r.design=out.design; setStage("design","done","✓ designed"); renderOut();
+    setStage("draft","run","assembling files…"); await pause(300);
+    r.files=out.files; setStage("draft","done",`✓ ${r.files.length} file(s)`); renderOut();
+    setStage("loops","run","checking completeness…"); await pause(250);
+    r.reviews=[out.review]; setStage("loops","done",`✓ ${out.review.overall}/100`);
+    log(`Completeness score: ${out.review.overall}/100. See the Quality review tab for ways to make it stronger.`);
     finish(r);
   }catch(e){ handleErr(e); }
   finally{ endRun(); }
@@ -817,12 +1872,13 @@ async function runLoops(s,r,n){
 async function moreLoop(){
   const r=state.result; if(!r||!r.files.length) return;
   const s=readSettings(); s.brief=r.settings.brief; s.ctx=r.settings.ctx; s.pkg=r.settings.pkg;
-  if(!s.key && PROV[s.provider].key && !PROV[s.provider].optionalKey){ showErr("Add your API key to run another loop."); return; }
+  if(!s.key && PROV[s.provider].key && !PROV[s.provider].optionalKey){ setMode("ai"); $("modelBox").open=true; showErr("To improve this skill with AI, add an API key in section 3 (AI engine & key), then press “✨ Improve with AI” again."); $("apikey").focus(); return; }
+  const wasMode=state.mode; state.mode="ai";
   showErr(""); startRun(true);
   try{
     const last=r.reviews[r.reviews.length-1];
     let critRaw;
-    if(last && last.final){ critRaw=last.raw; }
+    if(last && last.final && !last.offline){ critRaw=last.raw; }
     else { const crit=await step(s,"loops","extra loop: expert review",pCritique(s,packageText(r.files))); const c=parseCritique(crit); c.round=r.reviews.length+1; r.reviews.push(c); critRaw=c.raw; }
     const refined=await step(s,"loops","extra loop: rewriting",pRefine(s,r.analysis||"(not available)",packageText(r.files),critRaw));
     const nf=ensureFrontmatter(parseFiles(refined),s);
@@ -832,7 +1888,7 @@ async function moreLoop(){
     setStage("loops","done",`✓ ${c2.overall??"done"}${c2.overall!=null?"/100":""}`);
     finish(r);
   }catch(e){ handleErr(e); }
-  finally{ endRun(); }
+  finally{ endRun(); state.mode=wasMode; }
 }
 
 function startRun(keepStages){
@@ -874,8 +1930,9 @@ function renderOut(){
     const fm=getFrontmatter(r.files[0].content);
     $("skillName").textContent=fm.name||"skill";
     const last=r.reviews[r.reviews.length-1];
+    $("moreBtn").textContent = r.offline && !(r.reviews.some(x=>!x.offline)) ? "✨ Improve with AI" : "+1 loop";
     const b=$("scoreBadge");
-    if(last && last.overall!=null){ b.textContent=`Quality ${last.overall}/100`; b.className="score "+scoreClass(last.overall); b.style.display=""; }
+    if(last && last.overall!=null){ b.textContent=`${last.offline?"Completeness":"Quality"} ${last.overall}/100`; b.className="score "+scoreClass(last.overall); b.style.display=""; }
     else b.style.display="none";
   }
   const t=state.tab;
@@ -900,13 +1957,13 @@ function renderReview(r){
   if(!r.reviews.length) return waitMsg("The quality review");
   const last=r.reviews[r.reviews.length-1];
   const first=r.reviews[0];
-  let h=`<div class="rounds">${r.reviews.map(c=>`<span class="r">${c.final?"Final":"Review "+c.round}: <b>${c.overall??"n/a"}</b>/100</span>`).join("")}</div>`;
+  let h=`<div class="rounds">${r.reviews.map(c=>`<span class="r">${c.offline?"Offline check":c.final?"Final":"Review "+c.round}: <b>${c.overall??"n/a"}</b>/100</span>`).join("")}</div>`;
   if(first!==last && first.overall!=null && last.overall!=null) h+=`<p class="hint">Improvement across loops: <b style="color:var(--good)">${last.overall-first.overall>=0?"+":""}${last.overall-first.overall} points</b></p>`;
   h+=`<p><b>Verdict:</b> ${esc(last.verdict||"")}</p><div class="bars">`;
   RUBRIC.forEach(([k,l])=>{ const v=Number(last.scores[k])||0; h+=`<div class="bar"><span>${l}</span><div class="track"><div class="fill" style="width:${v*10}%"></div></div><b>${v||"–"}/10</b></div>`; });
   h+=`</div>`;
   if(last.improvements && last.improvements.length){
-    h+=`<h3 style="margin-top:18px;font-size:15px">${last.final?"Remaining suggestions (run “+1 loop” to apply)":"Improvements applied in the next rewrite"}</h3>`;
+    h+=`<h3 style="margin-top:18px;font-size:15px">${last.offline?"How to make it stronger":last.final?"Remaining suggestions (run “+1 loop” to apply)":"Improvements applied in the next rewrite"}</h3>`;
     h+=last.improvements.map(i=>`<div class="imp"><b>${esc(i.where||"")}</b><br>${esc(i.issue||"")}<br><span style="color:var(--accent2)">→ ${esc(i.fix||"")}</span></div>`).join("");
   }
   if(last.missing_knowledge && last.missing_knowledge.length){ h+=`<h3 style="font-size:15px">Missing knowledge flagged</h3><ul>${last.missing_knowledge.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`; }
@@ -1019,8 +2076,39 @@ function renderHist(){
   const h=getHist(), el=$("hist");
   if(!h.length){ el.innerHTML='<div class="hint">Skills you forge appear here (saved in this browser).</div>'; return; }
   el.innerHTML=h.map(x=>`<div class="hitem"><div class="grow"><div><b>${esc(getFrontmatter(x.files[0].content).name||"skill")}</b></div><div><small>${new Date(x.date).toLocaleString()} · ${x.score!=null?x.score+"/100":"no score"} · ${x.files.length} file(s)</small></div></div><button class="btn sm" data-open="${x.id}">Open</button><button class="btn sm" data-del="${x.id}" title="Delete">✕</button></div>`).join("");
-  el.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{ const x=getHist().find(y=>String(y.id)===b.dataset.open); if(!x) return; state.result=x; $("brief").value=x.settings.brief; $("ctx").value=x.settings.ctx||""; state.tab="preview"; renderOut(); toast("Loaded from history"); });
+  el.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{ const x=getHist().find(y=>String(y.id)===b.dataset.open); if(!x) return; state.result=x; $("brief").value=x.settings.brief; $("ctx").value=x.settings.ctx||""; if(x.settings.answers) Object.entries(x.settings.answers).forEach(([k,v])=>{ if($("q_"+k)) $("q_"+k).value=v||""; }); state.tab="preview"; renderOut(); toast("Loaded from history"); });
   el.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{ store("sf_hist",JSON.stringify(getHist().filter(y=>String(y.id)!==b.dataset.del))); renderHist(); });
+}
+function setMode(m){
+  state.mode=m; store("sf_mode",m);
+  $("modeSeg").querySelectorAll("button").forEach(b=>b.classList.toggle("on",b.dataset.v===m));
+  const off=m==="offline";
+  $("depthWrap").style.display=off?"none":"";
+  $("modelBox").style.display=off?"none":"";
+  $("modelBox").querySelector("summary").textContent=off?"AI engine & key":"2 · AI engine & key";
+  $("refineBox").querySelector("summary").textContent=(off?"2 · ":"")+"Refine details (optional — makes the skill more specific)";
+  $("refineBox").style.display=off?"":"none";
+  $("goBtn").textContent=off?"⚡ Forge skill (offline)":"⚡ Forge skill with AI";
+  $("modeNote").innerHTML=off?"Works with no internet AI and no key. Builds the skill from a built-in expert library matched to your brief. The skill also tells the agent to do its own deep expert analysis when it runs.":"Uses the AI provider below for a 5-step deep-thinking pipeline. Deeper and fully custom, but needs an API key.";
+  if(!state.running) renderPipe();
+  updateDetect();
+}
+let detectT=null;
+function updateDetect(){
+  clearTimeout(detectT);
+  detectT=setTimeout(()=>{
+    const el=$("detect"), b=$("brief").value.trim();
+    if(state.mode!=="offline" || b.length<8){ el.style.display="none"; return; }
+    try{
+      const A=analyseBrief(b,$("ctx").value);
+      const parts=[`<b>${esc(A.primary.a.label)}</b>`];
+      if(A.secondary.length) parts.push("+ "+A.secondary.map(x=>esc(x.a.label)).join(", "));
+      if(A.doms.length) parts.push("· "+A.doms.map(x=>esc(x.d.label)).join(", "));
+      if(A.aud) parts.push("· for "+esc(A.aud.d.label.toLowerCase()));
+      el.innerHTML="Detected: "+parts.join(" ")+(A.primary.a.id==="general"?"<br><small>Tip: words like review, write, analyse, test, plan, design or troubleshoot help pick a specialised expert.</small>":"");
+      el.style.display="block";
+    }catch(e){ el.style.display="none"; }
+  },250);
 }
 function getModel(){ const v=$("modelSel").value; return (v===OTHER? $("modelCustom").value : v).trim(); }
 function persistSettings(){
@@ -1082,7 +2170,10 @@ function modal(title, html, copyText){
 function copy(t){ (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast("Copied ✓")).catch(()=>{ const ta=document.createElement("textarea"); ta.value=t; document.body.appendChild(ta); ta.select(); try{document.execCommand("copy");toast("Copied ✓");}catch(e){toast("Copy failed — select and copy manually");} ta.remove(); }); }
 const HELP=`<div class="md">
 <h3>What it makes</h3><p>A <b>skill</b> is a folder with a <code>SKILL.md</code> file (plus optional reference files). An AI agent loads it to do one job at expert level. The top of <code>SKILL.md</code> has a <b>name</b> and a <b>description</b>, which tell the agent <i>when</i> to use the skill. The body tells it <i>how</i>.</p>
-<h3>How SkillForge thinks deeply</h3><ol>
+<h3>Two engines</h3><ul>
+<li><b>⚡ Offline (no AI, no key, free)</b> — SkillForge reads your brief and picks the expert type, such as reviewer, writer, analyst, tester, consultant, architect or troubleshooter. It also adds any matching domain pack: telecom, finance, health, legal, security, marketing, HR, software, data/AI or education. It then builds the skill from a built-in expert library: principles, workflow, decision rules, templates, failure modes, checklists and examples. Fill in <b>Refine details</b> to make it more specific. Every offline skill also includes an <b>expert bootstrap</b> step, which tells the agent to do its own deep analysis each time it runs.</li>
+<li><b>✨ AI-powered</b> — uses your API key for the multi-step pipeline below. Use it for maximum depth on unusual or highly specific topics. You can also forge offline first, then press <b>✨ Improve with AI</b>.</li></ul>
+<h3>How the AI-powered engine thinks deeply</h3><ol>
 <li><b>Deep analysis</b> — it decodes your goal, studies how the best human expert would work, and lists the domain knowledge, failure modes, edge cases and trigger phrases.</li>
 <li><b>Architecture</b> — it designs the name, a description that triggers reliably, the file plan, decision rules, templates, examples and a quality rubric.</li>
 <li><b>Full draft</b> — it writes the complete package.</li>
@@ -1111,9 +2202,11 @@ function init(){
   $("ver").textContent=VERSION;
   renderPipe(); renderHist();
   $("examples").innerHTML=EXAMPLES.map(e=>`<span class="chip">${esc(e.length>46?e.slice(0,44)+"…":e)}</span>`).join("");
-  $("examples").querySelectorAll(".chip").forEach((c,i)=>c.onclick=()=>{$("brief").value=EXAMPLES[i];$("brief").focus();});
+  $("examples").querySelectorAll(".chip").forEach((c,i)=>c.onclick=()=>{$("brief").value=EXAMPLES[i];$("brief").focus();updateDetect();});
   const seg=(id,key)=>$(id).querySelectorAll("button").forEach(b=>b.onclick=()=>{ $(id).querySelectorAll("button").forEach(x=>x.classList.remove("on")); b.classList.add("on"); state[key]= key==="depth"?Number(b.dataset.v):b.dataset.v; });
   seg("depthSeg","depth"); seg("pkgSeg","pkg");
+  $("modeSeg").querySelectorAll("button").forEach(b=>b.onclick=()=>{ if(!state.running){ showErr(""); setMode(b.dataset.v); } });
+  $("brief").addEventListener("input",updateDetect); $("ctx").addEventListener("input",updateDetect);
   $("provider").value=load("sf_provider")||"claude";
   $("remember").checked=load("sf_remember")==="1";
   if(load("sf_maxTok")) $("maxTok").value=load("sf_maxTok");
@@ -1121,6 +2214,7 @@ function init(){
   $("freeOnly").checked=load("sf_freeOnly")!=="0";
   if(load("sf_model_gemini")==="gemini-2.5-pro") unstore("sf_model_gemini"); // retired default from v1.x
   applyProvider();
+  setMode(load("sf_mode")||"offline");
   $("provider").onchange=()=>{ showErr(""); applyProvider(); persistSettings(); };
   $("modelSel").onchange=()=>{ $("modelCustom").style.display=$("modelSel").value===OTHER?"":"none"; if($("modelSel").value===OTHER) $("modelCustom").focus(); persistSettings(); };
   $("modelCustom").onchange=persistSettings;
