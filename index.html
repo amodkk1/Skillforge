@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SkillForge — Deep Agent Skill Builder</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%237c5cff'/><stop offset='1' stop-color='%2300d4b4'/></linearGradient></defs><rect width='64' height='64' rx='14' fill='url(%23g)'/><path d='M20 42l12-24 12 24M25 34h14' stroke='white' stroke-width='5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<style>
+:root{
+  --bg:#0b0d12;--panel:#12151d;--panel2:#171b25;--line:#252a37;--text:#e7e9ef;--muted:#8d94a7;
+  --accent:#7c5cff;--accent2:#00d4b4;--warn:#ffb547;--bad:#ff5c7a;--good:#3ddc97;
+  --radius:12px;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,Inter,sans-serif}
+a{color:var(--accent2)}
+header{display:flex;align-items:center;gap:14px;padding:16px 24px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#10131b,#0b0d12)}
+.logo{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:grid;place-items:center;flex:none}
+.logo svg{width:22px;height:22px}
+header h1{font-size:19px;margin:0;letter-spacing:.2px}
+header p{margin:0;color:var(--muted);font-size:13px}
+header .spacer{flex:1}
+.btn{appearance:none;border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:9px 14px;border-radius:9px;cursor:pointer;font:inherit;font-size:14px;display:inline-flex;align-items:center;gap:7px;transition:.15s}
+.btn:hover{border-color:#3a4155;background:#1d2230}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.primary{background:linear-gradient(135deg,var(--accent),#5b3fe0);border-color:transparent;font-weight:600}
+.btn.primary:hover{filter:brightness(1.1)}
+.btn.teal{background:linear-gradient(135deg,#00b89c,#0a8f7c);border-color:transparent;font-weight:600}
+.btn.danger{border-color:#5a2433;color:#ff9fb1}
+.btn.sm{padding:6px 10px;font-size:13px}
+main{display:grid;grid-template-columns:minmax(330px,420px) 1fr;gap:18px;padding:18px 24px;max-width:1600px;margin:0 auto}
+@media (max-width:980px){main{grid-template-columns:1fr;padding:12px}header{padding:12px}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px}
+.card > h2{font-size:14px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:0 0 12px;font-weight:600}
+label{display:block;font-size:13px;color:var(--muted);margin:12px 0 5px}
+textarea,input,select{width:100%;background:#0e1118;border:1px solid var(--line);color:var(--text);border-radius:9px;padding:10px 11px;font:inherit;font-size:14px;outline:none}
+textarea:focus,input:focus,select:focus{border-color:var(--accent)}
+textarea{resize:vertical}
+#brief{min-height:120px}
+.row{display:flex;gap:10px}
+.row>*{flex:1}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.chip{font-size:12px;padding:5px 9px;border-radius:20px;background:#1a1f2b;border:1px solid var(--line);color:#c4c9d6;cursor:pointer}
+.chip:hover{border-color:var(--accent)}
+.seg{display:flex;background:#0e1118;border:1px solid var(--line);border-radius:9px;padding:3px;gap:3px}
+.seg button{flex:1;background:none;border:0;color:var(--muted);padding:7px 6px;border-radius:7px;cursor:pointer;font:inherit;font-size:13px}
+.seg button.on{background:var(--panel2);color:var(--text);box-shadow:inset 0 0 0 1px #343b4e}
+.hint{font-size:12px;color:var(--muted);margin-top:5px}
+details{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+summary{cursor:pointer;color:#c4c9d6;font-size:14px}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+.actions .btn.primary{flex:1;justify-content:center;padding:12px}
+.check{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);margin-top:8px}
+.check input{width:auto}
+.right{display:flex;flex-direction:column;gap:18px;min-width:0}
+/* pipeline */
+.pipe{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}
+.stage{background:#0e1118;border:1px solid var(--line);border-radius:10px;padding:10px;position:relative;overflow:hidden}
+.stage .n{font-size:11px;color:var(--muted);font-family:var(--mono)}
+.stage .t{font-size:13px;font-weight:600;margin-top:2px}
+.stage .s{font-size:11px;color:var(--muted);margin-top:3px;min-height:16px}
+.stage.run{border-color:var(--accent)}
+.stage.run::after{content:"";position:absolute;left:0;bottom:0;height:2px;width:40%;background:linear-gradient(90deg,transparent,var(--accent),transparent);animation:slide 1.2s linear infinite}
+.stage.done{border-color:#1f5a46}
+.stage.done .s{color:var(--good)}
+.stage.err{border-color:#6b2537}
+.stage.err .s{color:var(--bad)}
+@keyframes slide{from{left:-40%}to{left:100%}}
+.console{margin-top:12px;background:#07090d;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-family:var(--mono);font-size:12px;color:#9aa3b8;height:150px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+.console .me{color:var(--accent2)}
+.statusbar{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:8px}
+.statusbar b{color:var(--text);font-weight:600}
+/* output */
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:-4px -4px 14px;padding:0 4px;overflow-x:auto}
+.tab{background:none;border:0;color:var(--muted);padding:9px 12px;cursor:pointer;font:inherit;font-size:14px;border-bottom:2px solid transparent;white-space:nowrap}
+.tab.on{color:var(--text);border-bottom-color:var(--accent)}
+.outhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.outhead .title{font-weight:700;font-size:16px;font-family:var(--mono)}
+.outhead .spacer{flex:1}
+.score{display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:4px 10px;border-radius:20px;background:#14261f;color:var(--good);border:1px solid #1f5a46}
+.score.mid{background:#2a2213;color:var(--warn);border-color:#5d4a1f}
+.score.low{background:#2a1419;color:var(--bad);border-color:#5a2433}
+.empty{color:var(--muted);text-align:center;padding:50px 20px}
+.empty .big{font-size:40px;margin-bottom:8px}
+pre.raw{background:#07090d;border:1px solid var(--line);border-radius:10px;padding:14px;overflow:auto;font-family:var(--mono);font-size:12.5px;line-height:1.5;white-space:pre-wrap;word-break:break-word;max-height:70vh;margin:0}
+.files{display:grid;grid-template-columns:230px 1fr;gap:12px}
+@media (max-width:700px){.files{grid-template-columns:1fr}}
+.flist{display:flex;flex-direction:column;gap:4px}
+.fitem{text-align:left;background:#0e1118;border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:8px;cursor:pointer;font-family:var(--mono);font-size:12px;word-break:break-all}
+.fitem.on{border-color:var(--accent)}
+.fitem small{display:block;color:var(--muted);font-family:system-ui}
+/* markdown */
+.md{max-height:72vh;overflow:auto;padding-right:6px}
+.md h1,.md h2,.md h3,.md h4{line-height:1.3;margin:1.3em 0 .5em}
+.md h1{font-size:22px;border-bottom:1px solid var(--line);padding-bottom:6px}
+.md h2{font-size:18px;color:#cfc4ff}
+.md h3{font-size:15.5px;color:#9ff0e0}
+.md h4{font-size:14px;color:#c4c9d6}
+.md p{margin:.55em 0}
+.md ul,.md ol{padding-left:22px;margin:.4em 0}
+.md li{margin:.2em 0}
+.md code{font-family:var(--mono);font-size:12.5px;background:#1a1f2b;padding:1px 5px;border-radius:5px}
+.md pre{background:#07090d;border:1px solid var(--line);border-radius:9px;padding:12px;overflow:auto}
+.md pre code{background:none;padding:0}
+.md blockquote{margin:.6em 0;border-left:3px solid var(--accent);padding:4px 12px;color:#c4c9d6;background:#141826;border-radius:0 8px 8px 0}
+.md table{border-collapse:collapse;margin:.7em 0;font-size:13.5px;display:block;overflow-x:auto}
+.md th,.md td{border:1px solid var(--line);padding:6px 9px;text-align:left;vertical-align:top}
+.md th{background:#171b25}
+.md hr{border:0;border-top:1px solid var(--line);margin:1.2em 0}
+.md .fm{background:#101626;border:1px solid #2b3557;border-radius:9px;padding:10px 12px;font-family:var(--mono);font-size:12.5px;white-space:pre-wrap;color:#b9c6ff}
+.md input[type=checkbox]{width:auto;margin-right:6px}
+/* critique */
+.bars{display:grid;gap:7px}
+.bar{display:grid;grid-template-columns:200px 1fr 44px;gap:10px;align-items:center;font-size:13px}
+@media (max-width:600px){.bar{grid-template-columns:120px 1fr 36px}}
+.bar .track{height:8px;background:#0e1118;border-radius:6px;overflow:hidden;border:1px solid var(--line)}
+.bar .fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2))}
+.imp{background:#0e1118;border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin:8px 0;font-size:13.5px}
+.imp b{color:#cfc4ff}
+.rounds{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px}
+.rounds .r{background:#0e1118;border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12.5px}
+.hist{display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto}
+.hitem{display:flex;gap:8px;align-items:center;background:#0e1118;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px}
+.hitem .grow{flex:1;min-width:0}
+.hitem .grow div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hitem small{color:var(--muted)}
+footer{color:var(--muted);font-size:12px;text-align:center;padding:16px 10px 26px}
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(30px);background:#1d2230;border:1px solid #343b4e;padding:10px 16px;border-radius:10px;font-size:14px;opacity:0;transition:.25s;pointer-events:none;z-index:9;max-width:90vw}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.err-box{background:#2a1419;border:1px solid #5a2433;color:#ffc2cd;border-radius:9px;padding:10px 12px;font-size:13px;margin-top:10px;display:none;white-space:pre-wrap}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:8;padding:16px}
+.modal{background:var(--panel);border:1px solid var(--line);border-radius:14px;max-width:820px;width:100%;max-height:88vh;display:flex;flex-direction:column}
+.modal .mh{display:flex;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line);gap:10px}
+.modal .mh h3{margin:0;font-size:16px;flex:1}
+.modal .mb{padding:14px 16px;overflow:auto}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4.5l5 5M4 20l7.5-7.5M12.5 6.5l5 5-3 3-5-5z"/><path d="M3 21h7"/></svg></div>
+  <div>
+    <h1>SkillForge</h1>
+    <p>Turn a short brief into a deep, expert-grade agent skill (SKILL.md)</p>
+  </div>
+  <div class="spacer"></div>
+  <button class="btn sm" id="helpBtn" title="How it works">How it works</button>
+</header>
+
+<main>
+  <!-- LEFT: input -->
+  <section class="left">
+    <div class="card">
+      <h2>1 · Describe the agent</h2>
+      <label for="brief">Brief — what should the agent be great at?</label>
+      <textarea id="brief" placeholder="e.g. An agent that reviews telecom RFP responses and scores them against the client's requirements, flags gaps and drafts fixes."></textarea>
+      <div class="chips" id="examples"></div>
+
+      <label for="ctx">Extra context (optional)</label>
+      <textarea id="ctx" rows="3" placeholder="Audience, tools the agent can use, house style, standards to follow, must-haves, things to avoid…"></textarea>
+
+      <label>Thinking depth</label>
+      <div class="seg" id="depthSeg">
+        <button data-v="1">Standard<br><small>1 refine loop</small></button>
+        <button data-v="2" class="on">Deep<br><small>2 loops</small></button>
+        <button data-v="3">Maximum<br><small>3 loops</small></button>
+      </div>
+      <div class="hint">Each loop = a strict expert review + a full rewrite. More loops = better skill, more time and API cost.</div>
+
+      <label>Package style</label>
+      <div class="seg" id="pkgSeg">
+        <button data-v="full" class="on">Full package<br><small>SKILL.md + references + tests</small></button>
+        <button data-v="single">Single file<br><small>SKILL.md only</small></button>
+      </div>
+
+      <details id="modelBox" open>
+        <summary>2 · AI engine &amp; key</summary>
+        <div class="row">
+          <div>
+            <label for="provider">Provider</label>
+            <select id="provider">
+              <option value="claude">Anthropic Claude</option>
+              <option value="gemini">Google Gemini</option>
+            </select>
+          </div>
+          <div>
+            <label for="model">Model</label>
+            <input id="model" list="modelList" autocomplete="off">
+            <datalist id="modelList"></datalist>
+          </div>
+        </div>
+        <label for="apikey">API key</label>
+        <input id="apikey" type="password" placeholder="Paste your API key" autocomplete="off">
+        <label class="check"><input type="checkbox" id="remember"> Remember key in this browser only</label>
+        <div class="hint">The key is sent only from your browser straight to the provider. It is never sent anywhere else.</div>
+        <details>
+          <summary>Advanced</summary>
+          <div class="row">
+            <div><label for="maxTok">Max output tokens / step</label><input id="maxTok" type="number" min="2000" step="1000" value="24000"></div>
+            <div><label for="target">Stop early at score</label><input id="target" type="number" min="50" max="100" value="93"></div>
+          </div>
+          <div class="hint">If the provider rejects the token limit, lower it (e.g. 16000). The loop stops early once the review score reaches the target.</div>
+        </details>
+      </details>
+
+      <div class="actions">
+        <button class="btn primary" id="goBtn">⚡ Forge skill</button>
+        <button class="btn danger" id="stopBtn" disabled>Stop</button>
+      </div>
+      <div class="actions" style="margin-top:8px">
+        <button class="btn sm" id="promptBtn" title="No API key? Copy one master prompt to paste into Claude, ChatGPT or Gemini chat">📋 No key? Copy master prompt</button>
+      </div>
+      <div class="err-box" id="errBox"></div>
+    </div>
+
+    <div class="card" style="margin-top:18px">
+      <h2>History</h2>
+      <div class="hist" id="hist"><div class="hint">Skills you forge appear here (saved in this browser).</div></div>
+    </div>
+  </section>
+
+  <!-- RIGHT: pipeline + output -->
+  <section class="right">
+    <div class="card">
+      <h2>Deep-thinking pipeline</h2>
+      <div class="pipe" id="pipe"></div>
+      <div class="console" id="console"><span class="me">› Ready.</span> Enter a brief and press “Forge skill”.</div>
+      <div class="statusbar"><span>Step: <b id="stStep">—</b></span><span>Elapsed: <b id="stTime">0s</b></span><span>Output so far: <b id="stChars">0</b> chars</span></div>
+    </div>
+
+    <div class="card" id="outCard">
+      <div class="tabs" id="tabs">
+        <button class="tab on" data-t="preview">Preview</button>
+        <button class="tab" data-t="files">Files</button>
+        <button class="tab" data-t="raw">Raw SKILL.md</button>
+        <button class="tab" data-t="review">Quality review</button>
+        <button class="tab" data-t="analysis">Deep analysis</button>
+        <button class="tab" data-t="design">Design</button>
+      </div>
+      <div class="outhead" id="outHead" style="display:none">
+        <span class="title" id="skillName">skill</span>
+        <span class="score" id="scoreBadge">—</span>
+        <span class="spacer"></span>
+        <button class="btn sm" id="copyBtn">Copy SKILL.md</button>
+        <button class="btn sm" id="dlMd">⬇ SKILL.md</button>
+        <button class="btn sm teal" id="dlZip">⬇ Skill folder (.zip)</button>
+        <button class="btn sm" id="moreBtn" title="Run one more review + rewrite loop">+1 loop</button>
+      </div>
+      <div id="out"><div class="empty"><div class="big">🛠️</div>Your skill will appear here.<br><small>Download it as SKILL.md or as a ready-to-upload skill folder (.zip).</small></div></div>
+    </div>
+  </section>
+</main>
+
+<footer>SkillForge · single-file app · <span id="ver"></span></footer>
+
+<div class="modal-bg" id="modalBg">
+  <div class="modal">
+    <div class="mh"><h3 id="mTitle">How it works</h3><button class="btn sm" id="mCopy" style="display:none">Copy</button><button class="btn sm" id="mClose">Close</button></div>
+    <div class="mb" id="mBody"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const VERSION = "v1.0.0";
+
+/* ============================================================
+   PROMPTS — the "deep thinking" engine
+   ============================================================ */
+const SYSTEM = `You are a principal agent-skill architect. You design SKILL.md packages: modular instruction sets that an AI agent loads so it performs one specialised job at the level of the best human expert in that field.
+
+How you work:
+- You think like the top practitioner of the target domain AND like a meticulous prompt engineer.
+- Every instruction you write must change the agent's behaviour. No generic filler ("ensure quality", "be thorough", "use best practices") — replace it with the concrete procedure, threshold, named framework, template or example that makes quality happen.
+- You explain the WHY behind non-obvious rules so the agent can generalise to cases you did not foresee, rather than shouting ALL-CAPS commands.
+- You prefer numbered procedures, decision rules (if X → do Y), checklists, templates, contrasts of excellent vs weak output, and worked examples.
+- You use progressive disclosure: the core SKILL.md stays lean and operational; deep knowledge lives in reference files the agent is told exactly when to read.
+- You write in imperative voice, addressed to the agent.`;
+
+const RUBRIC = [
+  ["trigger","Trigger precision (name + description)"],
+  ["depth","Expert domain depth"],
+  ["actionability","Actionable procedure & decision rules"],
+  ["output_spec","Output spec & templates"],
+  ["failure_modes","Failure modes & countermeasures"],
+  ["edge_cases","Edge cases, boundaries, escalation"],
+  ["self_check","Self-verification (checklist, rubric)"],
+  ["examples","Worked examples quality"],
+  ["structure","Structure & progressive disclosure"],
+  ["specificity","Specificity / zero filler"]
+];
+
+const FILE_FORMAT = `OUTPUT FORMAT — STRICT. Emit every file in this exact wrapper, nothing outside the wrappers:
+<<<FILE: relative/path.md>>>
+(file content)
+<<<END FILE>>>
+Emit SKILL.md first.`;
+
+function briefBlock(s){
+  return `USER BRIEF:\n"""${s.brief}"""\n` +
+    (s.ctx ? `\nEXTRA CONTEXT FROM USER:\n"""${s.ctx}"""\n` : "") +
+    `\nPACKAGE STYLE: ${s.pkg === "single" ? "Single file — everything must live inside SKILL.md (no reference files). Make SKILL.md complete and self-sufficient; it may be long (up to ~900 lines)." : "Full package — SKILL.md (lean, operational, ideally under ~500 lines) + references/*.md files holding deep knowledge, templates and examples + evals/test-prompts.md."}\n`;
+}
+
+function pAnalysis(s){
+  return `${briefBlock(s)}
+TASK: Before any skill is written, perform a DEEP ANALYSIS. Think like the world's leading expert in this field. Work through every heading with dense, specific substance (bullets; name real frameworks, standards, metrics, tools, laws, formulas where relevant). No preamble, no conclusion.
+
+## 1. Goal decoding
+What the user literally asked; what they actually need; the job-to-be-done; who consumes the agent's output and what they do with it next.
+## 2. The expert persona
+Who is the best human at this job? Their mental models, heuristics, vocabulary, quality standards. List 8+ specific things that separate expert output from novice/average AI output.
+## 3. Inputs the agent will receive
+Typical inputs and their variations; incomplete or ambiguous inputs; what the agent must ask about vs. sensible defaults it may assume (state the defaults).
+## 4. Outputs
+Formats, structure, length, tone, audience. Describe concretely what an EXCELLENT output looks like versus an average one.
+## 5. Domain knowledge the agent must carry
+The essential facts, frameworks, standards, taxonomies, formulas, regulations, benchmarks and best practices. Be specific and accurate. Flag anything time-sensitive the agent must verify.
+## 6. Expert process
+The step-by-step method an expert follows, including the planning step, decision points, and quality gates.
+## 7. Failure modes
+At least 10 likely ways an AI agent would produce mediocre, wrong, unsafe or generic output here — and the concrete countermeasure for each.
+## 8. Edge cases & boundaries
+When the skill should NOT apply; ethical, legal, safety, privacy or confidentiality limits; when to stop and escalate to a human.
+## 9. Tools & resources
+Tools, data sources, scripts, calculators or reference material that would raise quality (mark as optional where the agent may not have them).
+## 10. Trigger map
+10+ user phrases/situations that should activate this skill; 5+ near-miss requests that should NOT.
+## 11. Success criteria
+Measurable checks that prove a finished output is excellent.
+## 12. Assumptions
+Assumptions you made where the brief was silent.`;
+}
+
+function pDesign(s, analysis){
+  return `${briefBlock(s)}
+DEEP ANALYSIS (from the previous step):
+"""${analysis}"""
+
+TASK: Design the skill package architecture. Output in Markdown with these sections:
+
+### Identity
+- **name**: kebab-case, max 64 chars, lowercase letters/digits/hyphens, must not contain "claude" or "anthropic".
+- **description**: max 1000 characters, third person. Say what the skill does AND exactly when to use it, listing concrete trigger phrases and contexts. Be slightly "pushy" so the agent reliably reaches for it, and state what it is NOT for.
+
+### File plan
+${s.pkg === "single" ? "Single file: SKILL.md only. Give its full section outline." : "SKILL.md + 3–6 reference files under references/ (e.g. domain-knowledge.md, templates.md, examples.md, checklists.md, glossary.md — choose what this domain needs) + evals/test-prompts.md. For each file: purpose, and the list of sections."}
+
+### SKILL.md outline
+Every section with a one-line intent. Must include: purpose & outcome; when to use / not use; core principles (with why); inputs & clarification protocol; numbered workflow with decision points and an explicit plan-before-writing step; domain essentials; output specification & templates; quality bar (excellent vs weak contrasts); failure modes & countermeasures; edge cases & escalation; self-review checklist; iteration protocol (draft → critique → improve); ${s.pkg === "single" ? "" : "reference index (when to read which file); "}
+
+### Decision rules
+10+ "If <situation> → <action> (because <why>)" rules to embed.
+
+### Templates
+The output templates/skeletons the agent must use (show them).
+
+### Worked examples to include
+At least 2 examples: input → what an excellent output contains, plus a contrasting weak output and why it fails.
+
+### Quality rubric
+6–10 criteria the agent scores its own output against before delivering, with what a pass looks like for each.`;
+}
+
+function pDraft(s, analysis, design){
+  return `${briefBlock(s)}
+DEEP ANALYSIS:
+"""${analysis}"""
+
+ARCHITECTURE:
+"""${design}"""
+
+TASK: Write the COMPLETE skill package now, fully following the architecture. This is the final deliverable an agent will load, so make it the most expert, deep and operational version possible.
+
+${FILE_FORMAT}
+
+SKILL.md requirements:
+1. Begins with YAML frontmatter containing exactly two keys:
+---
+name: <kebab-case-name>
+description: <the trigger-optimised description, one line>
+---
+2. Then the body following the outline: purpose; when to use / not use; core principles each with its why; inputs & clarification protocol (what to ask, what to assume, stated defaults); numbered workflow with decision points and a plan-before-writing step; domain essentials; output specification with templates; quality bar with concrete excellent-vs-weak contrasts; failure modes & countermeasures; edge cases & escalation; self-review checklist as "- [ ]" items; iteration protocol${s.pkg === "single" ? "" : "; reference index telling the agent exactly when to read each reference file"}.
+3. Imperative voice addressed to the agent. Concrete numbers, thresholds, named frameworks and real terminology.
+4. At least 2 worked examples with good-vs-weak contrast${s.pkg === "single" ? " inside SKILL.md" : " (in references/examples.md if long)"}.
+5. Absolutely no placeholders ([insert], TBD, lorem), no generic filler, no meta-talk about this prompt. Every line must change agent behaviour.
+${s.pkg === "single" ? "" : `
+Reference files: deep, expert-level and substantive — frameworks explained, standards, checklists, templates, glossary, worked examples. Each starts with a "# Title" and a one-line note on when the agent should read it. Files longer than ~100 lines get a short table of contents.
+Also write evals/test-prompts.md: 6 realistic, varied test prompts (including one tricky edge case and one that should NOT trigger the skill), each with the must-have elements of a passing output.`}`;
+}
+
+function pCritique(s, pkgText){
+  const keys = RUBRIC.map(r => `"${r[0]}"`).join(", ");
+  return `${briefBlock(s)}
+SKILL PACKAGE TO REVIEW:
+"""${pkgText}"""
+
+TASK: You are a ruthless senior reviewer of agent skills and a top expert in this domain. Judge whether an agent loading this package would produce truly best-in-class output. Score each criterion 1–10 (10 = could not be meaningfully improved; be strict, 8 is good, 9+ is rare):
+${RUBRIC.map((r,i)=>`${i+1}. ${r[0]} — ${r[1]}`).join("\n")}
+
+Then give the most important concrete improvements (max 12, highest impact first). Each must name the file/section and say EXACTLY what to add, cut or change — real content, not "add more detail". Also list expert knowledge that is missing or inaccurate.
+
+Return ONLY a JSON object inside a \`\`\`json code block, shaped like:
+{"scores":{${keys} each mapped to a number},"verdict":"one-sentence overall judgement","improvements":[{"where":"file › section","issue":"...","fix":"..."}],"missing_knowledge":["..."]}`;
+}
+
+function pRefine(s, analysis, pkgText, critique){
+  return `${briefBlock(s)}
+DEEP ANALYSIS:
+"""${analysis}"""
+
+CURRENT SKILL PACKAGE:
+"""${pkgText}"""
+
+EXPERT REVIEW TO APPLY:
+"""${critique}"""
+
+TASK: Produce the improved, complete skill package. Apply EVERY improvement and add all missing knowledge from the review. Keep everything that is already strong. Tighten anything vague into specific procedure, thresholds or examples. Keep the YAML frontmatter (name + description) valid and the description trigger-optimised. Output ALL files in full — never diffs, never "unchanged" notes.
+
+${FILE_FORMAT}`;
+}
+
+function masterPrompt(s){
+  return `${SYSTEM}
+
+${briefBlock(s)}
+Work in four internal phases and show only the final files:
+PHASE 1 — Deep analysis: goal decoding; the expert persona and what separates expert from average output; inputs and clarification defaults; excellent output description; essential domain knowledge (named frameworks, standards, metrics); expert process; 10+ failure modes with countermeasures; edge cases, boundaries and escalation; trigger phrases and near-misses; success criteria.
+PHASE 2 — Architecture: kebab-case name; trigger-optimised description (≤1000 chars, what + when + not-for); file plan; SKILL.md outline; 10+ decision rules; templates; worked examples; self-scoring rubric.
+PHASE 3 — Draft the complete package.
+PHASE 4 — Critique your draft strictly against: ${RUBRIC.map(r=>r[1]).join("; ")}. Then rewrite to fix every weakness. Repeat phase 4 once more.
+
+Final SKILL.md requirements: YAML frontmatter with only name and description; then purpose; when to use / not; core principles with why; inputs & clarification protocol; numbered workflow with decision points and a plan-before-writing step; domain essentials; output spec with templates; excellent-vs-weak contrasts; failure modes & countermeasures; edge cases & escalation; "- [ ]" self-review checklist; iteration protocol${s.pkg==="single"?"":"; reference index"}. No placeholders, no filler.
+
+${FILE_FORMAT}`;
+}
+
+/* ============================================================
+   STATE / UI helpers
+   ============================================================ */
+const $ = id => document.getElementById(id);
+const MODELS = {
+  claude: ["claude-opus-5-5","claude-sonnet-5-5","claude-haiku-5-5","claude-fable-5-2"],
+  gemini: ["gemini-2.5-pro","gemini-3-pro-preview","gemini-2.5-flash"]
+};
+const EXAMPLES = [
+  "Telecom RFP response reviewer that scores answers against client requirements and drafts fixes",
+  "Consulting slide-deck storyliner: turns raw notes into an executive pyramid-principle storyline",
+  "5G network KPI analyst that diagnoses drops in throughput and recommends root-cause actions",
+  "Technical white paper writer for B2B telecom thought leadership",
+  "Python code reviewer focused on security, performance and readability",
+  "Market research analyst that builds competitor comparison briefs"
+];
+const STAGES = [
+  {id:"analysis",t:"Deep analysis"},
+  {id:"design",t:"Architecture"},
+  {id:"draft",t:"Full draft"},
+  {id:"loops",t:"Review ↔ refine"},
+  {id:"final",t:"Package"}
+];
+
+let state = {depth:2, pkg:"full", running:false, abort:null, result:null, tab:"preview", activeFile:"SKILL.md", t0:0, timer:null};
+
+function toast(msg){const t=$("toast");t.textContent=msg;t.classList.add("show");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("show"),2600);}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+function store(k,v){try{localStorage.setItem(k,v)}catch(e){}}
+function load(k){try{return localStorage.getItem(k)}catch(e){return null}}
+function unstore(k){try{localStorage.removeItem(k)}catch(e){}}
+
+function log(msg, cls){
+  const c=$("console");
+  const line=document.createElement("div");
+  if(cls) line.className=cls;
+  line.textContent=msg;
+  c.appendChild(line);
+  c.scrollTop=c.scrollHeight;
+}
+let liveLine=null;
+function liveStart(label){
+  liveLine=document.createElement("div");
+  liveLine.textContent="";
+  const head=document.createElement("div");head.className="me";head.textContent="› "+label;
+  $("console").appendChild(head);$("console").appendChild(liveLine);
+}
+function liveUpdate(full){
+  if(!liveLine) return;
+  liveLine.textContent = full.length>1400 ? "…"+full.slice(-1400) : full;
+  $("stChars").textContent = full.length.toLocaleString();
+  const c=$("console");c.scrollTop=c.scrollHeight;
+}
+function liveEnd(){ if(liveLine){ liveLine.textContent = liveLine.textContent.length>300 ? "…"+liveLine.textContent.slice(-300) : liveLine.textContent; } liveLine=null; }
+
+function renderPipe(){
+  $("pipe").innerHTML = STAGES.map((s,i)=>`<div class="stage" id="stg-${s.id}"><div class="n">0${i+1}</div><div class="t">${s.t}</div><div class="s" id="sts-${s.id}">waiting</div></div>`).join("");
+}
+function setStage(id, cls, txt){
+  const el=$("stg-"+id); if(!el) return;
+  el.classList.remove("run","done","err"); if(cls) el.classList.add(cls);
+  if(txt!==undefined) $("sts-"+id).textContent=txt;
+  if(cls==="run") $("stStep").textContent = STAGES.find(s=>s.id===id).t + (txt && txt!=="running…" ? " — "+txt : "");
+}
+
+/* ============================================================
+   API CALLS (streaming)
+   ============================================================ */
+async function readSSE(resp, onEvent){
+  const reader=resp.body.getReader(); const dec=new TextDecoder(); let buf="";
+  while(true){
+    const {done,value}=await reader.read(); if(done) break;
+    buf+=dec.decode(value,{stream:true});
+    let idx;
+    while((idx=buf.search(/\r?\n\r?\n/))!==-1){
+      const chunk=buf.slice(0,idx); buf=buf.slice(idx).replace(/^\r?\n\r?\n/,"");
+      const data=chunk.split(/\r?\n/).filter(l=>l.startsWith("data:")).map(l=>l.slice(5).trimStart()).join("\n");
+      if(!data || data==="[DONE]") continue;
+      try{ onEvent(JSON.parse(data)); }catch(e){ if(e && e.fatal) throw e; }
+    }
+  }
+}
+
+async function callLLM(cfg, prompt, onText, signal){
+  let full="", stop="";
+  if(cfg.provider==="claude"){
+    const resp=await fetch("https://api.anthropic.com/v1/messages",{
+      method:"POST", signal,
+      headers:{"content-type":"application/json","x-api-key":cfg.key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+      body:JSON.stringify({model:cfg.model,max_tokens:cfg.maxTok,stream:true,system:SYSTEM,messages:[{role:"user",content:prompt}]})
+    });
+    if(!resp.ok){ throw new Error(await apiError(resp,"Claude")); }
+    await readSSE(resp, ev=>{
+      if(ev.type==="content_block_delta" && ev.delta && ev.delta.type==="text_delta"){ full+=ev.delta.text; onText(full); }
+      else if(ev.type==="message_delta" && ev.delta && ev.delta.stop_reason){ stop=ev.delta.stop_reason; }
+      else if(ev.type==="error"){ const e=new Error("Claude stream error: "+(ev.error&&ev.error.message||"unknown")); e.fatal=true; throw e; }
+    });
+    if(stop==="max_tokens") log("⚠ Output hit the token limit — the step may be cut short. Raise “Max output tokens” in Advanced if possible.");
+  } else {
+    const url=`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cfg.model)}:streamGenerateContent?alt=sse`;
+    const resp=await fetch(url,{
+      method:"POST", signal,
+      headers:{"content-type":"application/json","x-goog-api-key":cfg.key},
+      body:JSON.stringify({systemInstruction:{parts:[{text:SYSTEM}]},contents:[{role:"user",parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:cfg.maxTok,temperature:0.7}})
+    });
+    if(!resp.ok){ throw new Error(await apiError(resp,"Gemini")); }
+    await readSSE(resp, ev=>{
+      if(ev.error){ const e=new Error("Gemini error: "+ev.error.message); e.fatal=true; throw e; }
+      const c=ev.candidates&&ev.candidates[0];
+      if(c&&c.content&&c.content.parts){ for(const p of c.content.parts){ if(p.text && !p.thought){ full+=p.text; } } onText(full); }
+      if(c&&c.finishReason) stop=c.finishReason;
+    });
+    if(stop==="MAX_TOKENS") log("⚠ Output hit the token limit — the step may be cut short. Raise “Max output tokens” in Advanced if possible.");
+  }
+  if(!full.trim()) throw new Error("The model returned an empty answer. Try again, or try another model.");
+  return full;
+}
+async function apiError(resp, who){
+  let t=""; try{ t=await resp.text(); }catch(e){}
+  let m=t; try{ const j=JSON.parse(t); m=(j.error&&(j.error.message||j.error.type))||t; }catch(e){}
+  const tips={401:"The API key looks wrong or expired.",403:"The key is not allowed to use this model or API.",404:"Model name not found — pick another model.",429:"Rate limit or quota reached — wait a minute or check billing.",400:"The request was rejected — often the max-tokens value is too high for this model; lower it in Advanced.",529:"The provider is overloaded — try again shortly."};
+  return `${who} API error ${resp.status}: ${m}\n${tips[resp.status]||""}`;
+}
+
+/* ============================================================
+   PARSING
+   ============================================================ */
+function parseFiles(text){
+  const files=[]; const re=/<<<FILE:\s*([^>\n]+?)\s*>>>\s*\n([\s\S]*?)(?:<<<END FILE>>>|(?=<<<FILE:)|$)/g;
+  let m;
+  while((m=re.exec(text))!==null){
+    let path=m[1].trim().replace(/^\.?\/+/,"").replace(/\.\.+\//g,"");
+    let content=m[2].replace(/\s+$/,"")+"\n";
+    content=content.replace(/^```(?:markdown|md)?\s*\n([\s\S]*?)\n```\s*\n?$/,"$1\n");
+    if(path && content.trim()) files.push({path,content});
+  }
+  if(!files.length){
+    let c=text.trim().replace(/^```(?:markdown|md)?\s*\n/,"").replace(/\n```$/,"");
+    files.push({path:"SKILL.md",content:c+"\n"});
+  }
+  // de-dup (keep last) and SKILL.md first
+  const map=new Map(); files.forEach(f=>map.set(f.path,f));
+  const out=[...map.values()];
+  let sk=out.find(f=>/(^|\/)SKILL\.md$/i.test(f.path));
+  if(sk){ sk.path="SKILL.md"; }
+  else { out[0].path="SKILL.md"; sk=out[0]; }
+  return [sk, ...out.filter(f=>f!==sk).sort((a,b)=>a.path.localeCompare(b.path))];
+}
+function packageText(files){ return files.map(f=>`<<<FILE: ${f.path}>>>\n${f.content.trim()}\n<<<END FILE>>>`).join("\n\n"); }
+
+function getFrontmatter(md){
+  const m=md.match(/^\s*---\s*\n([\s\S]*?)\n---/);
+  const o={};
+  if(m){ m[1].split("\n").forEach(l=>{ const k=l.match(/^(\w[\w-]*):\s*(.*)$/); if(k) o[k[1]]=k[2].replace(/^["']|["']$/g,"").trim(); }); }
+  return o;
+}
+function slugify(s){ return (s||"agent-skill").toLowerCase().replace(/claude|anthropic/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,64)||"agent-skill"; }
+
+function ensureFrontmatter(files, s){
+  const sk=files[0]; const fm=getFrontmatter(sk.content);
+  if(!fm.name || !fm.description){
+    const name=slugify(fm.name||s.brief.split(/\s+/).slice(0,6).join(" "));
+    const desc=(fm.description||("Use this skill when the user asks for: "+s.brief)).replace(/\n/g," ").slice(0,1000);
+    const body=sk.content.replace(/^\s*---\s*\n[\s\S]*?\n---\s*\n?/,"");
+    sk.content=`---\nname: ${name}\ndescription: ${desc}\n---\n\n${body.trim()}\n`;
+    log("ℹ Added missing frontmatter to SKILL.md.");
+  } else {
+    const clean=slugify(fm.name);
+    if(clean!==fm.name){ sk.content=sk.content.replace(/^(\s*---\s*\n[\s\S]*?)name:\s*.*$/m,`$1name: ${clean}`); }
+  }
+  return files;
+}
+
+function parseCritique(text){
+  let j=null;
+  const m=text.match(/```json\s*([\s\S]*?)```/i) || text.match(/(\{[\s\S]*\})/);
+  if(m){ try{ j=JSON.parse(m[1]); }catch(e){ try{ j=JSON.parse(m[1].replace(/,\s*([}\]])/g,"$1")); }catch(e2){} } }
+  if(!j) j={scores:{},verdict:"(Review could not be parsed as JSON — raw review kept and still applied.)",improvements:[],missing_knowledge:[]};
+  j.scores=j.scores||{};
+  const vals=RUBRIC.map(r=>Number(j.scores[r[0]])).filter(v=>!isNaN(v)&&v>0);
+  j.overall = vals.length ? Math.round(vals.reduce((a,b)=>a+Math.min(10,b),0)/vals.length*10) : null;
+  j.raw=text;
+  return j;
+}
+
+/* ============================================================
+   PIPELINE
+   ============================================================ */
+function readSettings(){
+  return {
+    brief:$("brief").value.trim(), ctx:$("ctx").value.trim(), depth:state.depth, pkg:state.pkg,
+    provider:$("provider").value, model:$("model").value.trim(), key:$("apikey").value.trim(),
+    maxTok:Math.max(2000,parseInt($("maxTok").value,10)||24000), target:Math.min(100,Math.max(50,parseInt($("target").value,10)||93))
+  };
+}
+function showErr(msg){ const e=$("errBox"); if(!msg){e.style.display="none";return;} e.textContent=msg; e.style.display="block"; }
+
+async function step(cfg, id, label, prompt){
+  setStage(id,"run",label||"running…");
+  liveStart(label||id);
+  const out=await callLLM(cfg,prompt,liveUpdate,state.abort.signal);
+  liveEnd();
+  return out;
+}
+
+async function forge(){
+  const s=readSettings();
+  showErr("");
+  if(s.brief.length<8){ showErr("Please write a brief of at least a few words describing the agent."); $("brief").focus(); return; }
+  if(!s.key){ showErr("Add your API key (section 2), or use “No key? Copy master prompt” to run it in any AI chat."); $("modelBox").open=true; $("apikey").focus(); return; }
+  if(!s.model){ showErr("Choose a model."); return; }
+  persistSettings();
+  startRun();
+  const r={id:Date.now(),date:new Date().toISOString(),settings:{brief:s.brief,ctx:s.ctx,depth:s.depth,pkg:s.pkg,provider:s.provider,model:s.model},analysis:"",design:"",files:[],reviews:[]};
+  state.result=r;
+  try{
+    log(`Provider: ${s.provider} · Model: ${s.model} · Depth: ${s.depth} loop(s) · Package: ${s.pkg}`);
+    r.analysis=await step(s,"analysis","Thinking through the domain like an expert",pAnalysis(s));
+    setStage("analysis","done","✓ "+r.analysis.length.toLocaleString()+" chars"); renderOut();
+
+    r.design=await step(s,"design","Designing the skill architecture",pDesign(s,r.analysis));
+    setStage("design","done","✓ designed"); renderOut();
+
+    const draft=await step(s,"draft","Writing the full skill package",pDraft(s,r.analysis,r.design));
+    r.files=ensureFrontmatter(parseFiles(draft),s);
+    setStage("draft","done",`✓ ${r.files.length} file(s)`); renderOut();
+
+    await runLoops(s,r,s.depth);
+    finish(r);
+  }catch(e){ handleErr(e); }
+  finally{ endRun(); }
+}
+
+async function runLoops(s,r,n){
+  for(let i=1;i<=n;i++){
+    const lbl=`loop ${i}/${n}: expert review`;
+    setStage("loops","run",lbl);
+    const crit=await step(s,"loops",lbl,pCritique(s,packageText(r.files)));
+    const c=parseCritique(crit); c.round=r.reviews.length+1;
+    r.reviews.push(c); renderOut();
+    log(`Review ${c.round}: score ${c.overall??"n/a"}/100 — ${c.verdict||""}`);
+    if(c.overall!==null && c.overall>=s.target){ log(`✓ Target score ${s.target} reached — stopping early.`); setStage("loops","done",`✓ ${c.overall}/100`); return; }
+    const lbl2=`loop ${i}/${n}: rewriting`;
+    const refined=await step(s,"loops",lbl2,pRefine(s,r.analysis,packageText(r.files),c.raw));
+    const nf=ensureFrontmatter(parseFiles(refined),s);
+    if(nf[0].content.length < r.files[0].content.length*0.45){ log("⚠ Rewrite looked truncated — kept the previous version."); }
+    else { r.files=nf; r.refined=(r.refined||0)+1; }
+    renderOut();
+  }
+  // final score check after last rewrite
+  const lbl=`final review`;
+  const crit=await step(s,"loops",lbl,pCritique(s,packageText(r.files)));
+  const c=parseCritique(crit); c.round=r.reviews.length+1; c.final=true; r.reviews.push(c);
+  log(`Final review: score ${c.overall??"n/a"}/100`);
+  setStage("loops","done",`✓ ${c.overall??"done"}${c.overall!=null?"/100":""}`);
+}
+
+async function moreLoop(){
+  const r=state.result; if(!r||!r.files.length) return;
+  const s=readSettings(); s.brief=r.settings.brief; s.ctx=r.settings.ctx; s.pkg=r.settings.pkg;
+  if(!s.key){ showErr("Add your API key to run another loop."); return; }
+  showErr(""); startRun(true);
+  try{
+    const last=r.reviews[r.reviews.length-1];
+    let critRaw;
+    if(last && last.final){ critRaw=last.raw; }
+    else { const crit=await step(s,"loops","extra loop: expert review",pCritique(s,packageText(r.files))); const c=parseCritique(crit); c.round=r.reviews.length+1; r.reviews.push(c); critRaw=c.raw; }
+    const refined=await step(s,"loops","extra loop: rewriting",pRefine(s,r.analysis||"(not available)",packageText(r.files),critRaw));
+    const nf=ensureFrontmatter(parseFiles(refined),s);
+    if(nf[0].content.length >= r.files[0].content.length*0.45) r.files=nf; else log("⚠ Rewrite looked truncated — kept the previous version.");
+    const crit2=await step(s,"loops","extra loop: final review",pCritique(s,packageText(r.files)));
+    const c2=parseCritique(crit2); c2.round=r.reviews.length+1; c2.final=true; r.reviews.push(c2);
+    setStage("loops","done",`✓ ${c2.overall??"done"}${c2.overall!=null?"/100":""}`);
+    finish(r);
+  }catch(e){ handleErr(e); }
+  finally{ endRun(); }
+}
+
+function startRun(keepStages){
+  state.running=true; state.abort=new AbortController();
+  $("goBtn").disabled=true; $("stopBtn").disabled=false; $("moreBtn").disabled=true;
+  if(!keepStages){ renderPipe(); $("console").innerHTML=""; }
+  state.t0=Date.now(); clearInterval(state.timer);
+  state.timer=setInterval(()=>{ const s=Math.round((Date.now()-state.t0)/1000); $("stTime").textContent= s>=60? `${Math.floor(s/60)}m ${s%60}s` : s+"s"; },1000);
+}
+function endRun(){
+  state.running=false; $("goBtn").disabled=false; $("stopBtn").disabled=true; $("moreBtn").disabled=false;
+  clearInterval(state.timer);
+}
+function handleErr(e){
+  liveEnd();
+  const msg = e.name==="AbortError" ? "Stopped." : (e.message||String(e));
+  const corsHint = /Failed to fetch|NetworkError|Load failed/i.test(msg) ? "\nNetwork/CORS problem: check your internet connection. If you opened the file inside a restricted viewer, open it directly in Chrome/Edge instead." : "";
+  log("✖ "+msg+corsHint);
+  STAGES.forEach(s=>{ const el=$("stg-"+s.id); if(el&&el.classList.contains("run")) setStage(s.id,"err",e.name==="AbortError"?"stopped":"error"); });
+  if(e.name!=="AbortError") showErr(msg+corsHint);
+  if(state.result && state.result.files.length){ log("Partial result kept — you can still download it."); renderOut(); }
+}
+function finish(r){
+  setStage("final","done","✓ ready to download");
+  $("stStep").textContent="Complete";
+  saveHistory(r); renderOut(); toast("Skill forged ✓");
+}
+
+/* ============================================================
+   OUTPUT RENDERING
+   ============================================================ */
+function scoreClass(v){ return v==null?"mid": v>=85?"": v>=70?"mid":"low"; }
+function renderOut(){
+  const r=state.result, out=$("out");
+  if(!r){ return; }
+  const has=r.files.length>0;
+  $("outHead").style.display=has?"flex":"none";
+  if(has){
+    const fm=getFrontmatter(r.files[0].content);
+    $("skillName").textContent=fm.name||"skill";
+    const last=r.reviews[r.reviews.length-1];
+    const b=$("scoreBadge");
+    if(last && last.overall!=null){ b.textContent=`Quality ${last.overall}/100`; b.className="score "+scoreClass(last.overall); b.style.display=""; }
+    else b.style.display="none";
+  }
+  const t=state.tab;
+  document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x.dataset.t===t));
+  if(t==="analysis"){ out.innerHTML = r.analysis ? `<div class="md">${md(r.analysis)}</div>` : waitMsg("Deep analysis"); return; }
+  if(t==="design"){ out.innerHTML = r.design ? `<div class="md">${md(r.design)}</div>` : waitMsg("Architecture"); return; }
+  if(t==="review"){ out.innerHTML = renderReview(r); return; }
+  if(!has){ out.innerHTML=waitMsg("The skill draft"); return; }
+  if(t==="raw"){ out.innerHTML=`<pre class="raw">${esc(r.files[0].content)}</pre>`; return; }
+  if(t==="files"){
+    if(!r.files.find(f=>f.path===state.activeFile)) state.activeFile="SKILL.md";
+    const f=r.files.find(f=>f.path===state.activeFile);
+    out.innerHTML=`<div class="files"><div class="flist">${r.files.map(x=>`<button class="fitem ${x.path===state.activeFile?"on":""}" data-f="${esc(x.path)}">${esc(x.path)}<small>${x.content.split("\n").length} lines · ${(x.content.length/1024).toFixed(1)} KB</small></button>`).join("")}<button class="btn sm" id="dlOne" style="margin-top:6px">⬇ Download this file</button></div><div class="md">${md(f.content)}</div></div>`;
+    out.querySelectorAll(".fitem").forEach(b=>b.onclick=()=>{state.activeFile=b.dataset.f;renderOut();});
+    $("dlOne").onclick=()=>download(f.path.split("/").pop(),f.content,"text/markdown");
+    return;
+  }
+  out.innerHTML=`<div class="md">${md(r.files[0].content)}</div>`;
+}
+function waitMsg(what){ return `<div class="empty">${state.running?"⏳ "+what+" is being generated…":what+" is not available yet."}</div>`; }
+function renderReview(r){
+  if(!r.reviews.length) return waitMsg("The quality review");
+  const last=r.reviews[r.reviews.length-1];
+  const first=r.reviews[0];
+  let h=`<div class="rounds">${r.reviews.map(c=>`<span class="r">${c.final?"Final":"Review "+c.round}: <b>${c.overall??"n/a"}</b>/100</span>`).join("")}</div>`;
+  if(first!==last && first.overall!=null && last.overall!=null) h+=`<p class="hint">Improvement across loops: <b style="color:var(--good)">${last.overall-first.overall>=0?"+":""}${last.overall-first.overall} points</b></p>`;
+  h+=`<p><b>Verdict:</b> ${esc(last.verdict||"")}</p><div class="bars">`;
+  RUBRIC.forEach(([k,l])=>{ const v=Number(last.scores[k])||0; h+=`<div class="bar"><span>${l}</span><div class="track"><div class="fill" style="width:${v*10}%"></div></div><b>${v||"–"}/10</b></div>`; });
+  h+=`</div>`;
+  if(last.improvements && last.improvements.length){
+    h+=`<h3 style="margin-top:18px;font-size:15px">${last.final?"Remaining suggestions (run “+1 loop” to apply)":"Improvements applied in the next rewrite"}</h3>`;
+    h+=last.improvements.map(i=>`<div class="imp"><b>${esc(i.where||"")}</b><br>${esc(i.issue||"")}<br><span style="color:var(--accent2)">→ ${esc(i.fix||"")}</span></div>`).join("");
+  }
+  if(last.missing_knowledge && last.missing_knowledge.length){ h+=`<h3 style="font-size:15px">Missing knowledge flagged</h3><ul>${last.missing_knowledge.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`; }
+  return h;
+}
+
+/* ---------- tiny markdown renderer ---------- */
+function inline(s){
+  s=esc(s);
+  s=s.replace(/`([^`]+)`/g,(m,c)=>`<code>${c}</code>`);
+  s=s.replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>");
+  s=s.replace(/(^|[^*])\*([^*\s][^*]*)\*/g,"$1<em>$2</em>");
+  s=s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+|[^)\s]+\.md)\)/g,(m,t,u)=>/^https?:/.test(u)?`<a href="${u}" target="_blank" rel="noopener">${t}</a>`:`<code>${t}</code>`);
+  return s;
+}
+function md(src){
+  let text=src.replace(/\r/g,"");
+  let html="";
+  const fm=text.match(/^\s*---\s*\n([\s\S]*?)\n---\s*\n?/);
+  if(fm){ html+=`<div class="fm">---\n${esc(fm[1])}\n---</div>`; text=text.slice(fm[0].length); }
+  const lines=text.split("\n"); let i=0;
+  const isTableSep=l=>/^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(l);
+  while(i<lines.length){
+    let l=lines[i];
+    if(/^\s*```/.test(l)){ const buf=[]; i++; while(i<lines.length && !/^\s*```/.test(lines[i])){buf.push(lines[i]);i++;} i++; html+=`<pre><code>${esc(buf.join("\n"))}</code></pre>`; continue; }
+    const h=l.match(/^(#{1,6})\s+(.*)$/); if(h){ const n=Math.min(4,h[1].length); html+=`<h${n}>${inline(h[2])}</h${n}>`; i++; continue; }
+    if(/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(l)){ html+="<hr>"; i++; continue; }
+    if(/^\s*\|/.test(l) && i+1<lines.length && isTableSep(lines[i+1])){
+      const row=x=>x.trim().replace(/^\||\|$/g,"").split("|").map(c=>c.trim());
+      const head=row(l); i+=2; let body="";
+      while(i<lines.length && /^\s*\|/.test(lines[i])){ body+="<tr>"+row(lines[i]).map(c=>`<td>${inline(c)}</td>`).join("")+"</tr>"; i++; }
+      html+=`<table><thead><tr>${head.map(c=>`<th>${inline(c)}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table>`; continue;
+    }
+    if(/^\s*>/.test(l)){ const buf=[]; while(i<lines.length && /^\s*>/.test(lines[i])){buf.push(lines[i].replace(/^\s*>\s?/,""));i++;} html+=`<blockquote>${buf.map(inline).join("<br>")}</blockquote>`; continue; }
+    if(/^\s*([-*+]|\d+[.)])\s+/.test(l)){
+      const stack=[]; // {type, indent}
+      while(i<lines.length && (/^\s*([-*+]|\d+[.)])\s+/.test(lines[i]) || (/^\s{2,}\S/.test(lines[i]) && stack.length))){
+        const ln=lines[i]; const m=ln.match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/);
+        if(!m){ html+=" "+inline(ln.trim()); i++; continue; }
+        const ind=m[1].length, type=/\d/.test(m[2])?"ol":"ul";
+        while(stack.length && ind<stack[stack.length-1].indent){ html+=`</li></${stack.pop().type}>`; }
+        if(!stack.length || ind>stack[stack.length-1].indent){ html+=`<${type}>`; stack.push({type,indent:ind}); }
+        else if(stack[stack.length-1].type!==type){ html+=`</li></${stack.pop().type}><${type}>`; stack.push({type,indent:ind}); }
+        else { html+="</li>"; }
+        let item=m[3]; const cb=item.match(/^\[( |x|X)\]\s+(.*)$/);
+        if(cb) item=`<input type="checkbox" disabled ${cb[1]!==" "?"checked":""}>`+inline(cb[2]); else item=inline(item);
+        html+=`<li>${item}`; i++;
+      }
+      while(stack.length) html+=`</li></${stack.pop().type}>`;
+      continue;
+    }
+    if(!l.trim()){ i++; continue; }
+    const buf=[]; while(i<lines.length && lines[i].trim() && !/^(#{1,6}\s|\s*```|\s*>|\s*([-*+]|\d+[.)])\s+|\s*\|)/.test(lines[i])){buf.push(lines[i]);i++;}
+    if(!buf.length){ buf.push(lines[i]); i++; }
+    html+=`<p>${buf.map(inline).join(" ")}</p>`;
+  }
+  return html;
+}
+
+/* ============================================================
+   DOWNLOADS (.md and dependency-free .zip)
+   ============================================================ */
+function download(name, data, type){
+  const blob = data instanceof Blob ? data : new Blob([data],{type:type||"text/plain"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name;
+  document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},800);
+}
+const CRC_T=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0;}return t;})();
+function crc32(b){let c=0xFFFFFFFF;for(let i=0;i<b.length;i++)c=CRC_T[(c^b[i])&0xFF]^(c>>>8);return (c^0xFFFFFFFF)>>>0;}
+function makeZip(entries){ // entries: [{name, data:Uint8Array}]
+  const enc=new TextEncoder(); const parts=[]; const central=[]; let offset=0;
+  const d=new Date(); const dosTime=(d.getHours()<<11)|(d.getMinutes()<<5)|(d.getSeconds()>>1); const dosDate=((d.getFullYear()-1980)<<9)|((d.getMonth()+1)<<5)|d.getDate();
+  for(const e of entries){
+    const name=enc.encode(e.name), data=e.data, crc=crc32(data);
+    const lh=new DataView(new ArrayBuffer(30));
+    lh.setUint32(0,0x04034b50,true);lh.setUint16(4,20,true);lh.setUint16(6,0x0800,true);lh.setUint16(8,0,true);
+    lh.setUint16(10,dosTime,true);lh.setUint16(12,dosDate,true);lh.setUint32(14,crc,true);lh.setUint32(18,data.length,true);lh.setUint32(22,data.length,true);
+    lh.setUint16(26,name.length,true);lh.setUint16(28,0,true);
+    parts.push(new Uint8Array(lh.buffer),name,data);
+    const ch=new DataView(new ArrayBuffer(46));
+    ch.setUint32(0,0x02014b50,true);ch.setUint16(4,20,true);ch.setUint16(6,20,true);ch.setUint16(8,0x0800,true);ch.setUint16(10,0,true);
+    ch.setUint16(12,dosTime,true);ch.setUint16(14,dosDate,true);ch.setUint32(16,crc,true);ch.setUint32(20,data.length,true);ch.setUint32(24,data.length,true);
+    ch.setUint16(28,name.length,true);ch.setUint16(30,0,true);ch.setUint16(32,0,true);ch.setUint16(34,0,true);ch.setUint16(36,0,true);ch.setUint32(38,0,true);ch.setUint32(42,offset,true);
+    central.push(new Uint8Array(ch.buffer),name);
+    offset+=30+name.length+data.length;
+  }
+  const cdSize=central.reduce((a,b)=>a+b.length,0);
+  const end=new DataView(new ArrayBuffer(22));
+  end.setUint32(0,0x06054b50,true);end.setUint16(8,entries.length,true);end.setUint16(10,entries.length,true);end.setUint32(12,cdSize,true);end.setUint32(16,offset,true);
+  return new Blob([...parts,...central,new Uint8Array(end.buffer)],{type:"application/zip"});
+}
+function zipSkill(r){
+  const enc=new TextEncoder(); const name=getFrontmatter(r.files[0].content).name||"agent-skill";
+  return {name, blob:makeZip(r.files.map(f=>({name:`${name}/${f.path}`,data:enc.encode(f.content)})))};
+}
+
+/* ============================================================
+   HISTORY + SETTINGS
+   ============================================================ */
+function getHist(){ try{ return JSON.parse(load("sf_hist")||"[]"); }catch(e){ return []; } }
+function saveHistory(r){
+  const h=getHist().filter(x=>x.id!==r.id);
+  const last=r.reviews[r.reviews.length-1];
+  h.unshift({id:r.id,date:r.date,settings:r.settings,analysis:r.analysis,design:r.design,files:r.files,reviews:r.reviews.map(c=>({...c,raw:c.final?c.raw:""})),score:last?last.overall:null});
+  while(h.length>12) h.pop();
+  try{ localStorage.setItem("sf_hist",JSON.stringify(h)); }catch(e){ try{ localStorage.setItem("sf_hist",JSON.stringify(h.slice(0,4))); }catch(e2){} }
+  renderHist();
+}
+function renderHist(){
+  const h=getHist(), el=$("hist");
+  if(!h.length){ el.innerHTML='<div class="hint">Skills you forge appear here (saved in this browser).</div>'; return; }
+  el.innerHTML=h.map(x=>`<div class="hitem"><div class="grow"><div><b>${esc(getFrontmatter(x.files[0].content).name||"skill")}</b></div><div><small>${new Date(x.date).toLocaleString()} · ${x.score!=null?x.score+"/100":"no score"} · ${x.files.length} file(s)</small></div></div><button class="btn sm" data-open="${x.id}">Open</button><button class="btn sm" data-del="${x.id}" title="Delete">✕</button></div>`).join("");
+  el.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{ const x=getHist().find(y=>String(y.id)===b.dataset.open); if(!x) return; state.result=x; $("brief").value=x.settings.brief; $("ctx").value=x.settings.ctx||""; state.tab="preview"; renderOut(); toast("Loaded from history"); });
+  el.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{ store("sf_hist",JSON.stringify(getHist().filter(y=>String(y.id)!==b.dataset.del))); renderHist(); });
+}
+function persistSettings(){
+  store("sf_provider",$("provider").value); store("sf_model_"+$("provider").value,$("model").value);
+  store("sf_maxTok",$("maxTok").value); store("sf_target",$("target").value);
+  if($("remember").checked){ store("sf_key_"+$("provider").value,$("apikey").value); store("sf_remember","1"); }
+  else { unstore("sf_key_claude"); unstore("sf_key_gemini"); unstore("sf_remember"); }
+}
+function applyProvider(){
+  const p=$("provider").value;
+  $("modelList").innerHTML=MODELS[p].map(m=>`<option value="${m}">`).join("");
+  $("model").value=load("sf_model_"+p)||MODELS[p][0];
+  $("apikey").value=load("sf_key_"+p)||"";
+  $("apikey").placeholder = p==="claude" ? "sk-ant-… (console.anthropic.com → API keys)" : "AIza… (aistudio.google.com → Get API key)";
+}
+
+/* ============================================================
+   MODAL
+   ============================================================ */
+function modal(title, html, copyText){
+  $("mTitle").textContent=title; $("mBody").innerHTML=html; $("modalBg").style.display="flex";
+  const c=$("mCopy"); if(copyText){ c.style.display=""; c.onclick=()=>copy(copyText); } else c.style.display="none";
+}
+function copy(t){ (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast("Copied ✓")).catch(()=>{ const ta=document.createElement("textarea"); ta.value=t; document.body.appendChild(ta); ta.select(); try{document.execCommand("copy");toast("Copied ✓");}catch(e){toast("Copy failed — select and copy manually");} ta.remove(); }); }
+const HELP=`<div class="md">
+<h3>What it makes</h3><p>A <b>skill</b> is a folder with a <code>SKILL.md</code> file (plus optional reference files). An AI agent loads it to do one job at expert level. The top of <code>SKILL.md</code> has a <b>name</b> and a <b>description</b>, which tell the agent <i>when</i> to use the skill. The body tells it <i>how</i>.</p>
+<h3>How SkillForge thinks deeply</h3><ol>
+<li><b>Deep analysis</b> — it decodes your goal, studies how the best human expert would work, and lists the domain knowledge, failure modes, edge cases and trigger phrases.</li>
+<li><b>Architecture</b> — it designs the name, a description that triggers reliably, the file plan, decision rules, templates, examples and a quality rubric.</li>
+<li><b>Full draft</b> — it writes the complete package.</li>
+<li><b>Review ↔ refine loops</b> — a strict expert reviewer scores the draft on 10 criteria and lists exact fixes, then the whole package is rewritten. This repeats 1–3 times, or stops early when the score reaches your target.</li>
+<li><b>Package</b> — you can download <code>SKILL.md</code> or the whole skill folder as a .zip.</li></ol>
+<h3>Using the skill you download</h3><ul>
+<li><b>Claude app (claude.ai)</b>: Settings → Capabilities → Skills → upload the <b>.zip</b>.</li>
+<li><b>Claude Code</b>: unzip into <code>~/.claude/skills/</code> (for you) or <code>.claude/skills/</code> inside a project.</li>
+<li><b>Claude API / Agent SDK</b>: upload the folder as a custom skill, or place it in the agent's skills directory.</li>
+<li><b>Other agent tools</b> (ChatGPT custom GPTs, Gemini Gems, LangChain, CrewAI…): paste the <code>SKILL.md</code> body into the agent's instructions and attach the reference files as knowledge.</li></ul>
+<h3>API keys</h3><p>You need a key from <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a> (Claude) or <a href="https://aistudio.google.com" target="_blank" rel="noopener">aistudio.google.com</a> (Gemini). The key goes only from your browser to that provider. Tick “Remember key” only on your own device.</p>
+<h3>No key?</h3><p>Press <b>“No key? Copy master prompt”</b>. Paste it into any AI chat. It packs all the stages into one prompt. The result is usually less deep than the multi-step pipeline.</p>
+<p class="hint">Settings menus in the Claude app can move. If you cannot find the Skills option, search the help centre for “custom skills”.</p></div>`;
+
+/* ============================================================
+   WIRING
+   ============================================================ */
+function init(){
+  $("ver").textContent=VERSION;
+  renderPipe(); renderHist();
+  $("examples").innerHTML=EXAMPLES.map(e=>`<span class="chip">${esc(e.length>46?e.slice(0,44)+"…":e)}</span>`).join("");
+  $("examples").querySelectorAll(".chip").forEach((c,i)=>c.onclick=()=>{$("brief").value=EXAMPLES[i];$("brief").focus();});
+  const seg=(id,key)=>$(id).querySelectorAll("button").forEach(b=>b.onclick=()=>{ $(id).querySelectorAll("button").forEach(x=>x.classList.remove("on")); b.classList.add("on"); state[key]= key==="depth"?Number(b.dataset.v):b.dataset.v; });
+  seg("depthSeg","depth"); seg("pkgSeg","pkg");
+  $("provider").value=load("sf_provider")||"claude";
+  $("remember").checked=load("sf_remember")==="1";
+  if(load("sf_maxTok")) $("maxTok").value=load("sf_maxTok");
+  if(load("sf_target")) $("target").value=load("sf_target");
+  applyProvider();
+  $("provider").onchange=()=>{ applyProvider(); persistSettings(); };
+  $("remember").onchange=persistSettings;
+  $("goBtn").onclick=forge;
+  $("stopBtn").onclick=()=>{ if(state.abort) state.abort.abort(); };
+  $("moreBtn").onclick=moreLoop;
+  document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{ state.tab=t.dataset.t; if(state.result) renderOut(); else document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x===t)); });
+  $("copyBtn").onclick=()=>state.result&&copy(state.result.files[0].content);
+  $("dlMd").onclick=()=>state.result&&download("SKILL.md",state.result.files[0].content,"text/markdown");
+  $("dlZip").onclick=()=>{ if(!state.result) return; const z=zipSkill(state.result); download(z.name+".zip",z.blob); };
+  $("helpBtn").onclick=()=>modal("How it works",HELP);
+  $("mClose").onclick=()=>$("modalBg").style.display="none";
+  $("modalBg").onclick=e=>{ if(e.target===$("modalBg")) $("modalBg").style.display="none"; };
+  $("promptBtn").onclick=()=>{
+    const s=readSettings();
+    if(s.brief.length<8){ showErr("Write a brief first, then copy the master prompt."); return; }
+    const p=masterPrompt(s);
+    modal("Master prompt — paste into any AI chat", `<p class="hint">Copy this and paste it into Claude, ChatGPT or Gemini. Save the SKILL.md block it returns as a file named <code>SKILL.md</code>.</p><pre class="raw">${esc(p)}</pre>`, p);
+  };
+  $("brief").addEventListener("keydown",e=>{ if((e.ctrlKey||e.metaKey)&&e.key==="Enter") forge(); });
+}
+init();
+
+/* expose pure helpers for testing */
+window.__SF={parseFiles,parseCritique,md,makeZip,crc32,ensureFrontmatter,getFrontmatter,slugify,masterPrompt};
+</script>
+</body>
+</html>
