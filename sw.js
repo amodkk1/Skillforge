@@ -1,6 +1,6 @@
 // SkillForge service worker — caches only the app's own files.
 // AI API calls (other websites) are never touched or cached.
-const CACHE = "skillforge-v1.1.0";
+const CACHE = "skillforge-v1.2.0";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-192.png", "./icon-maskable-512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", e => {

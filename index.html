@@ -182,22 +182,36 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding:16px 10px 26p
 
       <details id="modelBox" open>
         <summary>2 · AI engine &amp; key</summary>
-        <div class="row">
-          <div>
-            <label for="provider">Provider</label>
-            <select id="provider">
-              <option value="claude">Anthropic Claude</option>
-              <option value="gemini">Google Gemini</option>
-            </select>
-          </div>
-          <div>
-            <label for="model">Model</label>
-            <input id="model" list="modelList" autocomplete="off">
-            <datalist id="modelList"></datalist>
-          </div>
+        <label for="provider">Provider</label>
+        <select id="provider">
+          <optgroup label="Paid (your own API key)">
+            <option value="claude">Anthropic Claude</option>
+            <option value="openai">OpenAI (ChatGPT models)</option>
+            <option value="gemini">Google Gemini (has a free tier)</option>
+          </optgroup>
+          <optgroup label="Free models">
+            <option value="openrouter">OpenRouter — free models (free key)</option>
+            <option value="groq">Groq — free open models (free key)</option>
+            <option value="ollama">Ollama — models on your own computer</option>
+          </optgroup>
+          <optgroup label="Other">
+            <option value="custom">Custom (any OpenAI-compatible service)</option>
+          </optgroup>
+        </select>
+        <div class="hint" id="provHint"></div>
+        <div id="baseWrap" style="display:none">
+          <label for="baseUrl">Server address (base URL)</label>
+          <input id="baseUrl" placeholder="https://api.example.com/v1" autocomplete="off">
         </div>
-        <label for="apikey">API key</label>
+        <label for="apikey">API key <a id="keyLink" href="#" target="_blank" rel="noopener" style="float:right;font-size:12px">Get a key ↗</a></label>
         <input id="apikey" type="password" placeholder="Paste your API key" autocomplete="off">
+        <label for="modelSel">Model <span id="modelCount" style="float:right;font-size:12px"></span></label>
+        <div class="row" style="gap:6px">
+          <select id="modelSel"></select>
+          <button class="btn sm" id="refreshModels" style="flex:none" title="Fetch the latest model list from the provider">↻ Load all models</button>
+        </div>
+        <input id="modelCustom" placeholder="Type the exact model ID" autocomplete="off" style="display:none;margin-top:6px">
+        <label class="check" id="freeOnlyWrap" style="display:none"><input type="checkbox" id="freeOnly" checked> Show free models only</label>
         <label class="check"><input type="checkbox" id="remember"> Remember key in this browser only</label>
         <div class="hint">The key is sent only from your browser straight to the provider. It is never sent anywhere else.</div>
         <details>
@@ -270,7 +284,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding:16px 10px 26p
 
 <script>
 "use strict";
-const VERSION = "v1.1.0";
+const VERSION = "v1.2.0";
 
 /* ============================================================
    PROMPTS — the "deep thinking" engine
@@ -447,10 +461,32 @@ ${FILE_FORMAT}`;
    STATE / UI helpers
    ============================================================ */
 const $ = id => document.getElementById(id);
-const MODELS = {
-  claude: ["claude-opus-5-5","claude-sonnet-5-5","claude-haiku-5-5","claude-fable-5-2"],
-  gemini: ["gemini-2.5-pro","gemini-3-pro-preview","gemini-2.5-flash"]
+const PROV = {
+  claude:{label:"Claude", key:true, keyUrl:"https://console.anthropic.com/settings/keys", keyPh:"sk-ant-…",
+    hint:"Best quality for deep skills. Pay-as-you-go API credit needed.",
+    models:["claude-opus-5-5","claude-sonnet-5-5","claude-haiku-5-5","claude-fable-5-2"]},
+  openai:{label:"OpenAI", key:true, base:"https://api.openai.com/v1", keyUrl:"https://platform.openai.com/api-keys", keyPh:"sk-…",
+    hint:"Paid API credit needed (separate from a ChatGPT Plus subscription).",
+    models:["gpt-5","gpt-5-mini","gpt-4.1","o3","o4-mini","gpt-4o"]},
+  gemini:{label:"Gemini", key:true, keyUrl:"https://aistudio.google.com/app/apikey", keyPh:"AIza…",
+    hint:"Free tier available with a Google account (daily limits apply).",
+    models:["gemini-3.1-pro-preview","gemini-3-flash-preview","gemini-2.5-flash"]},
+  openrouter:{label:"OpenRouter", key:true, base:"https://openrouter.ai/api/v1", keyUrl:"https://openrouter.ai/settings/keys", keyPh:"sk-or-…",
+    hint:"Free key gives access to many free models (marked “free”). Free models have daily limits and are usually less deep than Claude or GPT.",
+    models:[], free:true},
+  groq:{label:"Groq", key:true, base:"https://api.groq.com/openai/v1", keyUrl:"https://console.groq.com/keys", keyPh:"gsk_…",
+    hint:"Free key, very fast open models (Llama, GPT-OSS, Kimi…). Free plan has per-minute limits.",
+    models:["openai/gpt-oss-120b","llama-3.3-70b-versatile","moonshotai/kimi-k2-instruct"]},
+  ollama:{label:"Ollama", key:false, base:"http://localhost:11434/v1", keyUrl:"https://ollama.com/download",
+    hint:"Free, runs on your own computer (not on a phone). Install Ollama, pull a model, and start it with OLLAMA_ORIGINS=* so this page may talk to it.",
+    models:[]},
+  custom:{label:"Custom", key:true, base:"", keyUrl:"", keyPh:"API key (leave blank if none)",
+    hint:"Any service with an OpenAI-style /chat/completions API (DeepSeek, Mistral, Together, LM Studio…). Enter its base URL.",
+    models:[], optionalKey:true}
 };
+const OTHER="__other__";
+let modelMeta={}; // id -> {maxOut}
+
 const EXAMPLES = [
   "Telecom RFP response reviewer that scores answers against client requirements and drafts fixes",
   "Consulting slide-deck storyliner: turns raw notes into an executive pyramid-principle storyline",
@@ -526,46 +562,123 @@ async function readSSE(resp, onEvent){
   }
 }
 
+function baseUrl(cfg){ return (cfg.provider==="custom"||cfg.provider==="ollama" ? (cfg.base||PROV[cfg.provider].base) : PROV[cfg.provider].base).replace(/\/+$/,""); }
+const sleep=(ms,signal)=>new Promise((res,rej)=>{ const t=setTimeout(res,ms); if(signal) signal.addEventListener("abort",()=>{clearTimeout(t);rej(new DOMException("Aborted","AbortError"));},{once:true}); });
+
 async function callLLM(cfg, prompt, onText, signal){
+  let tok=cfg.maxTok;
+  if(modelMeta[cfg.model] && modelMeta[cfg.model].maxOut && modelMeta[cfg.model].maxOut<tok) tok=modelMeta[cfg.model].maxOut;
+  for(let attempt=1;;attempt++){
+    try{ return await callOnce({...cfg,maxTok:tok}, prompt, onText, signal); }
+    catch(e){
+      if(e.name==="AbortError" || attempt>=4) throw e;
+      const st=e.status||0, msg=(e.message||"").toLowerCase();
+      if(st===400 && tok>4000 && /token|max_|output|too large|exceed|limit/.test(msg)){
+        tok=Math.max(4000,Math.floor(tok/2)); log(`↻ The model refused that output length — retrying with ${tok.toLocaleString()} tokens.`); continue;
+      }
+      if(st===429 || st===408 || st>=500){
+        const wait = st===429 ? 20000*attempt : 5000*attempt;
+        log(`↻ ${st===429?"Rate limit":"Server busy"} (${st}) — waiting ${wait/1000}s and retrying (${attempt}/3)…`);
+        await sleep(wait,signal); continue;
+      }
+      throw e;
+    }
+  }
+}
+
+async function callOnce(cfg, prompt, onText, signal){
   let full="", stop="";
+  const cut=()=>log("⚠ Output hit the token limit — the step may be cut short. Raise “Max output tokens” in Advanced, or pick a model with a larger output.");
   if(cfg.provider==="claude"){
     const resp=await fetch("https://api.anthropic.com/v1/messages",{
       method:"POST", signal,
       headers:{"content-type":"application/json","x-api-key":cfg.key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
       body:JSON.stringify({model:cfg.model,max_tokens:cfg.maxTok,stream:true,system:SYSTEM,messages:[{role:"user",content:prompt}]})
     });
-    if(!resp.ok){ throw new Error(await apiError(resp,"Claude")); }
+    if(!resp.ok){ throw await apiError(resp,"Claude"); }
     await readSSE(resp, ev=>{
       if(ev.type==="content_block_delta" && ev.delta && ev.delta.type==="text_delta"){ full+=ev.delta.text; onText(full); }
       else if(ev.type==="message_delta" && ev.delta && ev.delta.stop_reason){ stop=ev.delta.stop_reason; }
-      else if(ev.type==="error"){ const e=new Error("Claude stream error: "+(ev.error&&ev.error.message||"unknown")); e.fatal=true; throw e; }
+      else if(ev.type==="error"){ const e=new Error("Claude stream error: "+(ev.error&&ev.error.message||"unknown")); e.fatal=true; e.status=ev.error&&ev.error.type==="overloaded_error"?529:0; throw e; }
     });
-    if(stop==="max_tokens") log("⚠ Output hit the token limit — the step may be cut short. Raise “Max output tokens” in Advanced if possible.");
-  } else {
+    if(stop==="max_tokens") cut();
+  } else if(cfg.provider==="gemini"){
     const url=`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cfg.model)}:streamGenerateContent?alt=sse`;
     const resp=await fetch(url,{
       method:"POST", signal,
       headers:{"content-type":"application/json","x-goog-api-key":cfg.key},
-      body:JSON.stringify({systemInstruction:{parts:[{text:SYSTEM}]},contents:[{role:"user",parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:cfg.maxTok,temperature:0.7}})
+      body:JSON.stringify({systemInstruction:{parts:[{text:SYSTEM}]},contents:[{role:"user",parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:cfg.maxTok}})
     });
-    if(!resp.ok){ throw new Error(await apiError(resp,"Gemini")); }
+    if(!resp.ok){ throw await apiError(resp,"Gemini"); }
     await readSSE(resp, ev=>{
-      if(ev.error){ const e=new Error("Gemini error: "+ev.error.message); e.fatal=true; throw e; }
+      if(ev.error){ const e=new Error("Gemini error: "+ev.error.message); e.fatal=true; e.status=ev.error.code||0; throw e; }
       const c=ev.candidates&&ev.candidates[0];
       if(c&&c.content&&c.content.parts){ for(const p of c.content.parts){ if(p.text && !p.thought){ full+=p.text; } } onText(full); }
       if(c&&c.finishReason) stop=c.finishReason;
     });
-    if(stop==="MAX_TOKENS") log("⚠ Output hit the token limit — the step may be cut short. Raise “Max output tokens” in Advanced if possible.");
+    if(stop==="MAX_TOKENS") cut();
+  } else {
+    // OpenAI and every OpenAI-compatible service (OpenRouter, Groq, Ollama, custom)
+    const headers={"content-type":"application/json"};
+    if(cfg.key) headers["authorization"]="Bearer "+cfg.key;
+    if(cfg.provider==="openrouter"){ headers["HTTP-Referer"]=location.origin||"https://amodkk1.github.io"; headers["X-Title"]="SkillForge"; }
+    const body={model:cfg.model,stream:true,messages:[{role:"system",content:SYSTEM},{role:"user",content:prompt}]};
+    if(cfg.provider==="openai") body.max_completion_tokens=cfg.maxTok; else body.max_tokens=cfg.maxTok;
+    const resp=await fetch(baseUrl(cfg)+"/chat/completions",{method:"POST",signal,headers,body:JSON.stringify(body)});
+    if(!resp.ok){ throw await apiError(resp,PROV[cfg.provider].label); }
+    await readSSE(resp, ev=>{
+      if(ev.error){ const e=new Error(PROV[cfg.provider].label+" error: "+(ev.error.message||JSON.stringify(ev.error))); e.fatal=true; e.status=ev.error.code||0; throw e; }
+      const c=ev.choices&&ev.choices[0];
+      if(c&&c.delta&&typeof c.delta.content==="string"){ full+=c.delta.content; onText(full); }
+      if(c&&c.finish_reason) stop=c.finish_reason;
+    });
+    if(stop==="length") cut();
+    full=full.replace(/<think>[\s\S]*?<\/think>\s*/g,""); // strip reasoning blocks some open models emit
   }
-  if(!full.trim()) throw new Error("The model returned an empty answer. Try again, or try another model.");
+  if(!full.trim()){ const e=new Error("The model returned an empty answer. Try again, or try another model."); e.status=500; throw e; }
   return full;
 }
 async function apiError(resp, who){
   let t=""; try{ t=await resp.text(); }catch(e){}
-  let m=t; try{ const j=JSON.parse(t); m=(j.error&&(j.error.message||j.error.type))||t; }catch(e){}
-  const tips={401:"The API key looks wrong or expired.",403:"The key is not allowed to use this model or API.",404:"Model name not found — pick another model.",429:"Rate limit or quota reached — wait a minute or check billing.",400:"The request was rejected — often the max-tokens value is too high for this model; lower it in Advanced.",529:"The provider is overloaded — try again shortly."};
-  return `${who} API error ${resp.status}: ${m}\n${tips[resp.status]||""}`;
+  let m=t; try{ const j=JSON.parse(t); m=(j.error&&(j.error.message||j.error.type))||j.message||t; }catch(e){}
+  const tips={401:"The API key looks wrong or expired.",402:"No credit left on this account — add credit or pick a free model.",403:"The key is not allowed to use this model or API.",404:"This model is not available — press “↻ Load all models” and pick one from the list.",429:"Rate limit or quota reached — wait a minute, check billing, or pick another model.",400:"The request was rejected — if it mentions tokens, lower “Max output tokens” in Advanced.",413:"The request is too long for this model — pick a model with a bigger context window.",529:"The provider is overloaded — try again shortly."};
+  const e=new Error(`${who} API error ${resp.status}: ${String(m).slice(0,600)}\n${tips[resp.status]||""}`); e.status=resp.status; return e;
 }
+
+/* ---------- live model lists ---------- */
+async function fetchModels(p, key, base){
+  const okChat=id=>!/embed|whisper|tts|dall-e|moderation|image|audio|realtime|transcri|search|davinci|babbage|computer-use|guard|sora|codex-mini/i.test(id);
+  if(p==="claude"){
+    const r=await fetch("https://api.anthropic.com/v1/models?limit=1000",{headers:{"x-api-key":key,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"}});
+    if(!r.ok) throw await apiError(r,"Claude");
+    const j=await r.json(); return j.data.map(m=>({id:m.id,name:m.display_name||m.id}));
+  }
+  if(p==="gemini"){
+    let out=[], tok="";
+    do{
+      const r=await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000"+(tok?"&pageToken="+tok:""),{headers:{"x-goog-api-key":key}});
+      if(!r.ok) throw await apiError(r,"Gemini");
+      const j=await r.json(); tok=j.nextPageToken||"";
+      (j.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes("generateContent") && okChat(m.name)).forEach(m=>out.push({id:m.name.replace(/^models\//,""),name:m.displayName||m.name,maxOut:m.outputTokenLimit}));
+    }while(tok);
+    return out.sort((a,b)=>rankGemini(a.id)-rankGemini(b.id)||b.id.localeCompare(a.id));
+  }
+  const url=(p==="custom"||p==="ollama"?(base||PROV[p].base):PROV[p].base).replace(/\/+$/,"")+"/models";
+  const headers={}; if(key) headers.authorization="Bearer "+key;
+  const r=await fetch(url,{headers});
+  if(!r.ok) throw await apiError(r,PROV[p].label);
+  const j=await r.json(); let list=(j.data||j.models||[]);
+  if(p==="openrouter"){
+    return list.filter(m=>okChat(m.id)).map(m=>{
+      const free=/:free$/.test(m.id)||(m.pricing&&Number(m.pricing.prompt)===0&&Number(m.pricing.completion)===0);
+      return {id:m.id,name:(m.name||m.id)+(free?" — FREE":""),free,maxOut:(m.top_provider&&m.top_provider.max_completion_tokens)||null,ctx:m.context_length};
+    }).sort((a,b)=>(b.ctx||0)-(a.ctx||0));
+  }
+  list=list.map(m=>({id:m.id||m.name,name:m.id||m.name})).filter(m=>m.id&&okChat(m.id));
+  if(p==="openai") list=list.filter(m=>/^(gpt|o\d|chatgpt)/i.test(m.id));
+  return list.sort((a,b)=>b.id.localeCompare(a.id));
+}
+function rankGemini(id){ return /pro/.test(id)?0:/flash(?!-lite)/.test(id)?1:2; }
 
 /* ============================================================
    PARSING
@@ -634,7 +747,7 @@ function parseCritique(text){
 function readSettings(){
   return {
     brief:$("brief").value.trim(), ctx:$("ctx").value.trim(), depth:state.depth, pkg:state.pkg,
-    provider:$("provider").value, model:$("model").value.trim(), key:$("apikey").value.trim(),
+    provider:$("provider").value, model:getModel(), key:$("apikey").value.trim(), base:$("baseUrl").value.trim(),
     maxTok:Math.max(2000,parseInt($("maxTok").value,10)||24000), target:Math.min(100,Math.max(50,parseInt($("target").value,10)||93))
   };
 }
@@ -652,8 +765,9 @@ async function forge(){
   const s=readSettings();
   showErr("");
   if(s.brief.length<8){ showErr("Please write a brief of at least a few words describing the agent."); $("brief").focus(); return; }
-  if(!s.key){ showErr("Add your API key (section 2), or use “No key? Copy master prompt” to run it in any AI chat."); $("modelBox").open=true; $("apikey").focus(); return; }
-  if(!s.model){ showErr("Choose a model."); return; }
+  if(!s.key && PROV[s.provider].key && !PROV[s.provider].optionalKey){ showErr("Add your API key (section 2), or use “No key? Copy master prompt” to run it in any AI chat."); $("modelBox").open=true; $("apikey").focus(); return; }
+  if(s.provider==="custom" && !s.base){ showErr("Enter the server address (base URL) for your custom provider."); $("baseUrl").focus(); return; }
+  if(!s.model){ showErr("Choose a model — press “↻ Load all models” to see what your key can use."); return; }
   persistSettings();
   startRun();
   const r={id:Date.now(),date:new Date().toISOString(),settings:{brief:s.brief,ctx:s.ctx,depth:s.depth,pkg:s.pkg,provider:s.provider,model:s.model},analysis:"",design:"",files:[],reviews:[]};
@@ -703,7 +817,7 @@ async function runLoops(s,r,n){
 async function moreLoop(){
   const r=state.result; if(!r||!r.files.length) return;
   const s=readSettings(); s.brief=r.settings.brief; s.ctx=r.settings.ctx; s.pkg=r.settings.pkg;
-  if(!s.key){ showErr("Add your API key to run another loop."); return; }
+  if(!s.key && PROV[s.provider].key && !PROV[s.provider].optionalKey){ showErr("Add your API key to run another loop."); return; }
   showErr(""); startRun(true);
   try{
     const last=r.reviews[r.reviews.length-1];
@@ -908,18 +1022,54 @@ function renderHist(){
   el.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{ const x=getHist().find(y=>String(y.id)===b.dataset.open); if(!x) return; state.result=x; $("brief").value=x.settings.brief; $("ctx").value=x.settings.ctx||""; state.tab="preview"; renderOut(); toast("Loaded from history"); });
   el.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{ store("sf_hist",JSON.stringify(getHist().filter(y=>String(y.id)!==b.dataset.del))); renderHist(); });
 }
+function getModel(){ const v=$("modelSel").value; return (v===OTHER? $("modelCustom").value : v).trim(); }
 function persistSettings(){
-  store("sf_provider",$("provider").value); store("sf_model_"+$("provider").value,$("model").value);
-  store("sf_maxTok",$("maxTok").value); store("sf_target",$("target").value);
-  if($("remember").checked){ store("sf_key_"+$("provider").value,$("apikey").value); store("sf_remember","1"); }
-  else { unstore("sf_key_claude"); unstore("sf_key_gemini"); unstore("sf_remember"); }
+  const p=$("provider").value;
+  store("sf_provider",p); store("sf_model_"+p,getModel()); store("sf_base_"+p,$("baseUrl").value.trim());
+  store("sf_maxTok",$("maxTok").value); store("sf_target",$("target").value); store("sf_freeOnly",$("freeOnly").checked?"1":"0");
+  if($("remember").checked){ store("sf_key_"+p,$("apikey").value); store("sf_remember","1"); }
+  else { Object.keys(PROV).forEach(k=>unstore("sf_key_"+k)); unstore("sf_remember"); }
+}
+function fillModels(list, keep){
+  const p=$("provider").value, sel=$("modelSel");
+  let shown=list;
+  if(p==="openrouter" && $("freeOnly").checked) shown=list.filter(m=>m.free);
+  modelMeta={}; list.forEach(m=>{ if(m.maxOut) modelMeta[m.id]={maxOut:m.maxOut}; });
+  const want=keep||load("sf_model_"+p)||(shown[0]&&shown[0].id)||"";
+  sel.innerHTML=shown.map(m=>`<option value="${esc(m.id)}">${esc(m.name&&m.name!==m.id?m.name+"  ·  "+m.id:m.id)}</option>`).join("")+`<option value="${OTHER}">✎ Other — type a model ID…</option>`;
+  if(want && shown.some(m=>m.id===want)) sel.value=want;
+  else if(want && !list.some(m=>m.id===want)){ sel.value=OTHER; $("modelCustom").value=want; }
+  else sel.value=shown.length?shown[0].id:OTHER;
+  $("modelCustom").style.display = sel.value===OTHER?"":"none";
+  $("modelCount").textContent = list.length ? `${shown.length} model${shown.length===1?"":"s"}` : "";
 }
 function applyProvider(){
-  const p=$("provider").value;
-  $("modelList").innerHTML=MODELS[p].map(m=>`<option value="${m}">`).join("");
-  $("model").value=load("sf_model_"+p)||MODELS[p][0];
+  const p=$("provider").value, P=PROV[p];
   $("apikey").value=load("sf_key_"+p)||"";
-  $("apikey").placeholder = p==="claude" ? "sk-ant-… (console.anthropic.com → API keys)" : "AIza… (aistudio.google.com → Get API key)";
+  $("apikey").placeholder=P.key?P.keyPh:"No key needed";
+  $("apikey").disabled=!P.key;
+  $("keyLink").style.display=P.keyUrl?"":"none"; $("keyLink").href=P.keyUrl||"#"; $("keyLink").textContent=p==="ollama"?"Download Ollama ↗":"Get a key ↗";
+  $("provHint").textContent=P.hint;
+  $("baseWrap").style.display=(p==="custom"||p==="ollama")?"":"none";
+  $("baseUrl").value=load("sf_base_"+p)||(P.base||"");
+  $("freeOnlyWrap").style.display=p==="openrouter"?"":"none";
+  let cached=null; try{ cached=JSON.parse(load("sf_models_"+p)||"null"); }catch(e){}
+  fillModels(cached&&cached.length?cached:P.models.map(id=>({id,name:id})));
+  if(p==="openrouter" && !(cached&&cached.length)) refreshModels(true); // list is public, no key needed
+}
+async function refreshModels(quiet){
+  const p=$("provider").value, P=PROV[p], key=$("apikey").value.trim(), btn=$("refreshModels");
+  if(P.key && !P.optionalKey && !key && p!=="openrouter"){ if(!quiet) showErr("Paste your API key first, then press “↻ Load all models”."); return; }
+  btn.disabled=true; btn.textContent="Loading…";
+  try{
+    const list=await fetchModels(p,key,$("baseUrl").value.trim());
+    if(!list.length) throw new Error("The provider returned no chat models for this key.");
+    store("sf_models_"+p,JSON.stringify(list));
+    if($("provider").value===p){ fillModels(list,getModel()); showErr(""); if(!quiet) toast(`Loaded ${list.length} models from ${P.label}`); }
+  }catch(e){
+    const cors=/Failed to fetch|NetworkError|Load failed/i.test(e.message||"");
+    if(!quiet) showErr("Could not load the model list: "+(e.message||e)+(cors?(p==="ollama"?"\nIs Ollama running, and started with OLLAMA_ORIGINS=* ?":"\nCheck your internet connection or the server address."):""));
+  }finally{ btn.disabled=false; btn.textContent="↻ Load all models"; }
 }
 
 /* ============================================================
@@ -943,7 +1093,14 @@ const HELP=`<div class="md">
 <li><b>Claude Code</b>: unzip into <code>~/.claude/skills/</code> (for you) or <code>.claude/skills/</code> inside a project.</li>
 <li><b>Claude API / Agent SDK</b>: upload the folder as a custom skill, or place it in the agent's skills directory.</li>
 <li><b>Other agent tools</b> (ChatGPT custom GPTs, Gemini Gems, LangChain, CrewAI…): paste the <code>SKILL.md</code> body into the agent's instructions and attach the reference files as knowledge.</li></ul>
-<h3>API keys</h3><p>You need a key from <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a> (Claude) or <a href="https://aistudio.google.com" target="_blank" rel="noopener">aistudio.google.com</a> (Gemini). The key goes only from your browser to that provider. Tick “Remember key” only on your own device.</p>
+<h3>AI providers and keys</h3><ul>
+<li><b>Claude, OpenAI</b>: paid API keys. These give the deepest skills.</li>
+<li><b>Gemini</b>: a free tier is available with a Google account.</li>
+<li><b>OpenRouter (free models)</b> and <b>Groq</b>: free keys that give access to free open models. Free models have daily or per-minute limits, and are usually less deep.</li>
+<li><b>Ollama</b>: free models running on your own computer (not on a phone).</li>
+<li><b>Custom</b>: any service with an OpenAI-style API, such as DeepSeek, Mistral or Together.</li></ul>
+<p>After pasting a key, press <b>“↻ Load all models”</b>. The app asks the provider which models your key can use, so the list is always current. Use “✎ Other” to type any model ID by hand.</p>
+<p>The key goes only from your browser to that provider. Tick “Remember key” only on your own device. If a model is busy or rate-limited, the app waits and retries automatically.</p>
 <h3>No key?</h3><p>Press <b>“No key? Copy master prompt”</b>. Paste it into any AI chat. It packs all the stages into one prompt. The result is usually less deep than the multi-step pipeline.</p>
 <p class="hint">Settings menus in the Claude app can move. If you cannot find the Skills option, search the help centre for “custom skills”.</p></div>`;
 
@@ -961,8 +1118,16 @@ function init(){
   $("remember").checked=load("sf_remember")==="1";
   if(load("sf_maxTok")) $("maxTok").value=load("sf_maxTok");
   if(load("sf_target")) $("target").value=load("sf_target");
+  $("freeOnly").checked=load("sf_freeOnly")!=="0";
+  if(load("sf_model_gemini")==="gemini-2.5-pro") unstore("sf_model_gemini"); // retired default from v1.x
   applyProvider();
-  $("provider").onchange=()=>{ applyProvider(); persistSettings(); };
+  $("provider").onchange=()=>{ showErr(""); applyProvider(); persistSettings(); };
+  $("modelSel").onchange=()=>{ $("modelCustom").style.display=$("modelSel").value===OTHER?"":"none"; if($("modelSel").value===OTHER) $("modelCustom").focus(); persistSettings(); };
+  $("modelCustom").onchange=persistSettings;
+  $("refreshModels").onclick=()=>refreshModels(false);
+  $("freeOnly").onchange=()=>{ let c=null; try{c=JSON.parse(load("sf_models_openrouter")||"null");}catch(e){} fillModels(c||[]); persistSettings(); };
+  $("apikey").addEventListener("change",()=>{ persistSettings(); if($("apikey").value.trim() && !load("sf_models_"+$("provider").value)) refreshModels(true); });
+  $("baseUrl").onchange=persistSettings;
   $("remember").onchange=persistSettings;
   $("goBtn").onclick=forge;
   $("stopBtn").onclick=()=>{ if(state.abort) state.abort.abort(); };
