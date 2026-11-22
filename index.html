@@ -239,6 +239,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding:16px 10px 26p
         </div>
         <label for="apikey">API key <a id="keyLink" href="#" target="_blank" rel="noopener" style="float:right;font-size:12px">Get a key ↗</a></label>
         <input id="apikey" type="password" placeholder="Paste your API key" autocomplete="off">
+        <div class="hint" id="keyStatus"></div>
         <label for="modelSel">Model <span id="modelCount" style="float:right;font-size:12px"></span></label>
         <div class="row" style="gap:6px">
           <select id="modelSel"></select>
@@ -246,7 +247,8 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding:16px 10px 26p
         </div>
         <input id="modelCustom" placeholder="Type the exact model ID" autocomplete="off" style="display:none;margin-top:6px">
         <label class="check" id="freeOnlyWrap" style="display:none"><input type="checkbox" id="freeOnly" checked> Show free models only</label>
-        <label class="check"><input type="checkbox" id="remember"> Remember key in this browser only</label>
+        <label class="check"><input type="checkbox" id="remember" checked> Remember my keys on this device (one per provider)</label>
+        <div id="savedKeys" class="hint"></div>
         <div class="hint">The key is sent only from your browser straight to the provider. It is never sent anywhere else.</div>
         <details>
           <summary>Advanced</summary>
@@ -1312,7 +1314,7 @@ function buildOffline(s, answers){
 </script>
 <script>
 "use strict";
-const VERSION = "v1.3.0";
+const VERSION = "v1.3.1";
 
 /* ============================================================
    PROMPTS — the "deep thinking" engine
@@ -2115,8 +2117,7 @@ function persistSettings(){
   const p=$("provider").value;
   store("sf_provider",p); store("sf_model_"+p,getModel()); store("sf_base_"+p,$("baseUrl").value.trim());
   store("sf_maxTok",$("maxTok").value); store("sf_target",$("target").value); store("sf_freeOnly",$("freeOnly").checked?"1":"0");
-  if($("remember").checked){ store("sf_key_"+p,$("apikey").value); store("sf_remember","1"); }
-  else { Object.keys(PROV).forEach(k=>unstore("sf_key_"+k)); unstore("sf_remember"); }
+
 }
 function fillModels(list, keep){
   const p=$("provider").value, sel=$("modelSel");
@@ -2131,9 +2132,30 @@ function fillModels(list, keep){
   $("modelCustom").style.display = sel.value===OTHER?"":"none";
   $("modelCount").textContent = list.length ? `${shown.length} model${shown.length===1?"":"s"}` : "";
 }
+/* ---------- API keys: one per provider, kept while switching ---------- */
+const keyMem={};           // keys for this session (always kept while the app is open)
+let curProv=null;          // provider whose key is currently in the box
+function rememberOn(){ return $("remember").checked; }
+function saveKey(p, v){
+  v=(v||"").trim(); keyMem[p]=v;
+  if(rememberOn()){ if(v) store("sf_key_"+p,v); else unstore("sf_key_"+p); }
+  renderKeyStatus();
+}
+function getKey(p){ return (keyMem[p]!==undefined ? keyMem[p] : (load("sf_key_"+p)||"")); }
+function renderKeyStatus(){
+  const p=$("provider").value, P=PROV[p];
+  const saved=Object.keys(PROV).filter(k=>PROV[k].key && getKey(k));
+  $("keyStatus").textContent = !P.key ? "" : getKey(p) ? `✓ Key for ${P.label} ${rememberOn()?"saved on this device":"kept until you close the app"} — it fills in automatically when you pick ${P.label}.` : `No key saved for ${P.label} yet.`;
+  const html = saved.length ? `Saved keys: ${saved.map(k=>`<b>${esc(PROV[k].label)}</b> <a href="#" data-forget="${k}" style="font-size:11px">forget</a>`).join(" · ")}` : "";
+  if($("savedKeys").innerHTML===html) return;   // don't redraw (keeps taps on "forget" working)
+  $("savedKeys").innerHTML = html;
+  $("savedKeys").querySelectorAll("[data-forget]").forEach(a=>a.onclick=e=>{ e.preventDefault(); const k=a.dataset.forget; keyMem[k]=""; unstore("sf_key_"+k); if(k===$("provider").value) $("apikey").value=""; renderKeyStatus(); toast(`${PROV[k].label} key forgotten`); });
+}
 function applyProvider(){
   const p=$("provider").value, P=PROV[p];
-  $("apikey").value=load("sf_key_"+p)||"";
+  if(curProv && curProv!==p) saveKey(curProv,$("apikey").value);   // keep the key of the provider we are leaving
+  curProv=p;
+  $("apikey").value=getKey(p);
   $("apikey").placeholder=P.key?P.keyPh:"No key needed";
   $("apikey").disabled=!P.key;
   $("keyLink").style.display=P.keyUrl?"":"none"; $("keyLink").href=P.keyUrl||"#"; $("keyLink").textContent=p==="ollama"?"Download Ollama ↗":"Get a key ↗";
@@ -2144,6 +2166,7 @@ function applyProvider(){
   let cached=null; try{ cached=JSON.parse(load("sf_models_"+p)||"null"); }catch(e){}
   fillModels(cached&&cached.length?cached:P.models.map(id=>({id,name:id})));
   if(p==="openrouter" && !(cached&&cached.length)) refreshModels(true); // list is public, no key needed
+  renderKeyStatus();
 }
 async function refreshModels(quiet){
   const p=$("provider").value, P=PROV[p], key=$("apikey").value.trim(), btn=$("refreshModels");
@@ -2208,7 +2231,7 @@ function init(){
   $("modeSeg").querySelectorAll("button").forEach(b=>b.onclick=()=>{ if(!state.running){ showErr(""); setMode(b.dataset.v); } });
   $("brief").addEventListener("input",updateDetect); $("ctx").addEventListener("input",updateDetect);
   $("provider").value=load("sf_provider")||"claude";
-  $("remember").checked=load("sf_remember")==="1";
+  $("remember").checked=load("sf_remember")!=="0";
   if(load("sf_maxTok")) $("maxTok").value=load("sf_maxTok");
   if(load("sf_target")) $("target").value=load("sf_target");
   $("freeOnly").checked=load("sf_freeOnly")!=="0";
@@ -2220,9 +2243,14 @@ function init(){
   $("modelCustom").onchange=persistSettings;
   $("refreshModels").onclick=()=>refreshModels(false);
   $("freeOnly").onchange=()=>{ let c=null; try{c=JSON.parse(load("sf_models_openrouter")||"null");}catch(e){} fillModels(c||[]); persistSettings(); };
-  $("apikey").addEventListener("change",()=>{ persistSettings(); if($("apikey").value.trim() && !load("sf_models_"+$("provider").value)) refreshModels(true); });
+  $("apikey").addEventListener("input",()=>saveKey($("provider").value,$("apikey").value));
+  $("apikey").addEventListener("change",()=>{ saveKey($("provider").value,$("apikey").value); persistSettings(); if($("apikey").value.trim() && !load("sf_models_"+$("provider").value)) refreshModels(true); });
   $("baseUrl").onchange=persistSettings;
-  $("remember").onchange=persistSettings;
+  $("remember").onchange=()=>{
+    if(rememberOn()){ store("sf_remember","1"); Object.keys(PROV).forEach(k=>{ if(keyMem[k]) store("sf_key_"+k,keyMem[k]); }); toast("Keys will be remembered on this device"); }
+    else { store("sf_remember","0"); Object.keys(PROV).forEach(k=>{ const v=load("sf_key_"+k); if(v && keyMem[k]===undefined) keyMem[k]=v; unstore("sf_key_"+k); }); toast("Saved keys removed from this device (kept until you close the app)"); }
+    renderKeyStatus();
+  };
   $("goBtn").onclick=forge;
   $("stopBtn").onclick=()=>{ if(state.abort) state.abort.abort(); };
   $("moreBtn").onclick=moreLoop;
