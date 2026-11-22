@@ -45,7 +45,8 @@ textarea:focus,input:focus,select:focus{border-color:var(--accent)}
 textarea{resize:vertical}
 #brief{min-height:120px}
 .row{display:flex;gap:10px}
-.row>*{flex:1}
+.row>*{flex:1;min-width:0}
+main>section{min-width:0}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .chip{font-size:12px;padding:5px 9px;border-radius:20px;background:#1a1f2b;border:1px solid var(--line);color:#c4c9d6;cursor:pointer}
 .chip:hover{border-color:var(--accent)}
@@ -130,7 +131,13 @@ pre.raw{background:#07090d;border:1px solid var(--line);border-radius:10px;paddi
 .imp b{color:#cfc4ff}
 .rounds{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px}
 .rounds .r{background:#0e1118;border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12.5px}
-.hist{display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto}
+.meter{height:8px;background:#0e1118;border:1px solid var(--line);border-radius:6px;overflow:hidden;margin:6px 0 4px}
+.meter div{height:100%;background:linear-gradient(90deg,var(--accent2),var(--accent));transition:width .3s}
+.meter.warn div{background:linear-gradient(90deg,var(--warn),#ff8a3d)}
+.meter.full div{background:var(--bad)}
+.store-alert{display:none;background:#2a2213;border:1px solid #5d4a1f;color:#ffd99a;border-radius:9px;padding:9px 11px;font-size:13px;margin:8px 0}
+.store-alert.full{background:#2a1419;border-color:#5a2433;color:#ffc2cd}
+.hist{display:flex;flex-direction:column;gap:6px;max-height:420px;overflow:auto}
 .hitem{display:flex;gap:8px;align-items:center;background:#0e1118;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px}
 .hitem .grow{flex:1;min-width:0}
 .hitem .grow div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -276,7 +283,15 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding:16px 10px 26p
 
     <div class="card" style="margin-top:18px">
       <h2>History</h2>
-      <div class="hist" id="hist"><div class="hint">Skills you forge appear here (saved in this browser).</div></div>
+      <div class="hint" id="storeText">Checking storage…</div>
+      <div class="meter" id="meter"><div style="width:0%"></div></div>
+      <div class="hint" id="storeProt"></div>
+      <div class="store-alert" id="storeAlert"></div>
+      <div class="row" style="gap:6px;margin:8px 0">
+        <input id="histSearch" placeholder="Search saved skills…" autocomplete="off">
+        <button class="btn sm" id="exportAll" style="flex:none" title="Download every saved skill in one .zip">⬇ All (.zip)</button>
+      </div>
+      <div class="hist" id="hist"><div class="hint">Skills you forge appear here (saved on this device).</div></div>
     </div>
   </section>
 
@@ -1319,7 +1334,7 @@ function buildOffline(s, answers){
 </script>
 <script>
 "use strict";
-const VERSION = "v1.3.2";
+const VERSION = "v1.4.0";
 
 /* ============================================================
    PROMPTS — the "deep thinking" engine
@@ -2127,21 +2142,112 @@ function zipSkill(r){
 /* ============================================================
    HISTORY + SETTINGS
    ============================================================ */
-function getHist(){ try{ return JSON.parse(load("sf_hist")||"[]"); }catch(e){ return []; } }
-function saveHistory(r){
-  const h=getHist().filter(x=>x.id!==r.id);
+/* ---------- History in IndexedDB (1 GB budget, never auto-deleted) ---------- */
+const STORE_BUDGET = 1024*1024*1024;   // 1 GB set aside for saved skills
+const WARN_AT = 0.80;                  // alert from 80% full
+let histCache=[], histUsed=0, histBudget=STORE_BUDGET, warnedLevel=0;
+function idb(){
+  return new Promise((res,rej)=>{
+    if(!("indexedDB" in window)) return rej(new Error("This browser has no IndexedDB storage."));
+    const q=indexedDB.open("skillforge",1);
+    q.onupgradeneeded=()=>{ q.result.createObjectStore("skills",{keyPath:"id"}); };
+    q.onsuccess=()=>res(q.result); q.onerror=()=>rej(q.error);
+  });
+}
+async function idbTx(mode, fn){
+  const db=await idb();
+  return new Promise((res,rej)=>{ const tx=db.transaction("skills",mode); const st=tx.objectStore("skills"); let out; const r=fn(st); if(r) r.onsuccess=()=>{ out=r.result; }; tx.oncomplete=()=>{ db.close(); res(out); }; tx.onerror=tx.onabort=()=>{ db.close(); rej(tx.error||new Error("Storage error")); }; });
+}
+const idbAll=()=>idbTx("readonly",st=>st.getAll());
+const idbPut=rec=>idbTx("readwrite",st=>st.put(rec));
+const idbDel=id=>idbTx("readwrite",st=>st.delete(id));
+function sizeOf(o){ return new Blob([JSON.stringify(o)]).size; }
+function fmtBytes(b){ return b<1024?b+" B": b<1048576?(b/1024).toFixed(1)+" KB": b<1073741824?(b/1048576).toFixed(1)+" MB":(b/1073741824).toFixed(2)+" GB"; }
+
+async function loadHist(){
+  try{
+    // one-time move of the old history (max 12 items) into the new storage
+    const old=load("sf_hist");
+    if(old){ try{ for(const x of JSON.parse(old)){ x.bytes=sizeOf(x); await idbPut(x); } }catch(e){} unstore("sf_hist"); }
+    histCache=(await idbAll()).sort((a,b)=>b.id-a.id);
+  }catch(e){ histCache=[]; $("storeText").textContent="Saved skills are unavailable in this browser: "+e.message; }
+  histUsed=histCache.reduce((a,x)=>a+(x.bytes||sizeOf(x)),0);
+  try{
+    if(navigator.storage && navigator.storage.estimate){
+      const est=await navigator.storage.estimate();
+      if(est.quota){ const roomForUs=(est.quota-(est.usage||0))+histUsed; histBudget=Math.min(STORE_BUDGET, Math.floor(roomForUs*0.9)); }
+    }
+  }catch(e){}
+  renderHist(); renderStorage(false);
+}
+async function requestPersist(){
+  try{
+    if(navigator.storage && navigator.storage.persist){
+      const already=await navigator.storage.persisted();
+      const ok=already || await navigator.storage.persist();
+      $("storeProt").textContent = ok ? "🔒 Protected: the browser will not clear saved skills on its own." : "Note: the browser may clear saved skills if the phone runs very low on space. Download important skills as .zip.";
+    }
+  }catch(e){}
+}
+function renderStorage(alertNow){
+  const pct=histBudget? histUsed/histBudget : 0;
+  const m=$("meter"); m.firstElementChild.style.width=Math.min(100,pct*100).toFixed(1)+"%";
+  m.className="meter"+(pct>=1?" full":pct>=WARN_AT?" warn":"");
+  $("storeText").innerHTML=`<b>${histCache.length}</b> saved skill${histCache.length===1?"":"s"} · ${fmtBytes(histUsed)} of ${fmtBytes(histBudget)} used (${(pct*100).toFixed(pct<0.01?2:1)}%)`+(histBudget<STORE_BUDGET?` <small>— this device allows ${fmtBytes(histBudget)}, less than the 1 GB target</small>`:"");
+  const a=$("storeAlert");
+  if(pct>=WARN_AT){
+    const full=pct>=1;
+    a.className="store-alert"+(full?" full":"");
+    a.innerHTML=(full?"⛔ <b>Storage full.</b> New skills can still be downloaded but will not be saved to History until you free space.":`⚠ <b>Storage ${Math.round(pct*100)}% full.</b> Free up space soon.`)+" Download the skills you want to keep (⬇ on each skill, or ⬇ All), then delete them with ✕. Largest first: "+histCache.slice().sort((x,y)=>(y.bytes||0)-(x.bytes||0)).slice(0,3).map(x=>esc(histName(x))+" ("+fmtBytes(x.bytes||0)+")").join(", ")+".";
+    a.style.display="block";
+    const level=full?2:1;
+    if(alertNow && level>=warnedLevel){ toast(full?"⛔ History storage is full — free up space":"⚠ History storage is over 80% full — please free up space"); warnedLevel=level; }
+  } else { a.style.display="none"; warnedLevel=0; }
+}
+function histName(x){ return getFrontmatter((x.files[0]||{content:""}).content).name||"skill"; }
+async function saveHistory(r){
   const last=r.reviews[r.reviews.length-1];
-  h.unshift({id:r.id,date:r.date,settings:r.settings,analysis:r.analysis,design:r.design,files:r.files,reviews:r.reviews.map(c=>({...c,raw:c.final?c.raw:""})),score:last?last.overall:null});
-  while(h.length>12) h.pop();
-  try{ localStorage.setItem("sf_hist",JSON.stringify(h)); }catch(e){ try{ localStorage.setItem("sf_hist",JSON.stringify(h.slice(0,4))); }catch(e2){} }
-  renderHist();
+  const rec={id:r.id,date:r.date,settings:r.settings,analysis:r.analysis,design:r.design,files:r.files,reviews:r.reviews.map(c=>({...c,raw:c.final?c.raw:""})),score:last?last.overall:null,offline:!!r.offline};
+  rec.bytes=sizeOf(rec);
+  const prev=histCache.find(x=>x.id===rec.id);
+  const newUsed=histUsed-(prev?prev.bytes||0:0)+rec.bytes;
+  if(newUsed>histBudget){ renderStorage(true); showErr("History storage is full, so this skill was NOT saved to History. Download it now (⬇ Skill folder), then free up space by downloading and deleting older skills."); return; }
+  try{ await idbPut(rec); }
+  catch(e){ showErr("Could not save to History: "+(e.message||e)+". Download the skill now so you don't lose it."); return; }
+  histCache=[rec,...histCache.filter(x=>x.id!==rec.id)]; histUsed=newUsed;
+  requestPersist();
+  renderHist(); renderStorage(true);
+}
+function openHist(x){ state.result=x; $("brief").value=x.settings.brief; $("ctx").value=x.settings.ctx||""; if(x.settings.answers) Object.entries(x.settings.answers).forEach(([k,v])=>{ if($("q_"+k)) $("q_"+k).value=v||""; }); state.tab="preview"; renderOut(); toast("Loaded from history"); $("outCard").scrollIntoView({behavior:"smooth"}); }
+async function deleteHist(id){
+  const x=histCache.find(y=>String(y.id)===String(id)); if(!x) return;
+  if(!confirmInline(id)) return;
+  try{ await idbDel(x.id); }catch(e){ toast("Delete failed: "+e.message); return; }
+  histCache=histCache.filter(y=>y!==x); histUsed-= (x.bytes||0); if(histUsed<0) histUsed=0;
+  renderHist(); renderStorage(false); toast(`Deleted ${histName(x)} — freed ${fmtBytes(x.bytes||0)}`);
+}
+let pendingDel=null;
+function confirmInline(id){   // first tap arms, second tap deletes (no blocking browser pop-up)
+  if(pendingDel===String(id)){ pendingDel=null; return true; }
+  pendingDel=String(id); renderHist(); setTimeout(()=>{ if(pendingDel===String(id)){ pendingDel=null; renderHist(); } },4000);
+  return false;
 }
 function renderHist(){
-  const h=getHist(), el=$("hist");
-  if(!h.length){ el.innerHTML='<div class="hint">Skills you forge appear here (saved in this browser).</div>'; return; }
-  el.innerHTML=h.map(x=>`<div class="hitem"><div class="grow"><div><b>${esc(getFrontmatter(x.files[0].content).name||"skill")}</b></div><div><small>${new Date(x.date).toLocaleString()} · ${x.score!=null?x.score+"/100":"no score"} · ${x.files.length} file(s)</small></div></div><button class="btn sm" data-open="${x.id}">Open</button><button class="btn sm" data-del="${x.id}" title="Delete">✕</button></div>`).join("");
-  el.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{ const x=getHist().find(y=>String(y.id)===b.dataset.open); if(!x) return; state.result=x; $("brief").value=x.settings.brief; $("ctx").value=x.settings.ctx||""; if(x.settings.answers) Object.entries(x.settings.answers).forEach(([k,v])=>{ if($("q_"+k)) $("q_"+k).value=v||""; }); state.tab="preview"; renderOut(); toast("Loaded from history"); });
-  el.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>{ store("sf_hist",JSON.stringify(getHist().filter(y=>String(y.id)!==b.dataset.del))); renderHist(); });
+  const el=$("hist"), q=($("histSearch").value||"").toLowerCase().trim();
+  if(!histCache.length){ el.innerHTML='<div class="hint">Skills you forge appear here (saved on this device, never deleted automatically).</div>'; return; }
+  const list=q? histCache.filter(x=>(histName(x)+" "+x.settings.brief).toLowerCase().includes(q)) : histCache;
+  if(!list.length){ el.innerHTML='<div class="hint">No saved skill matches your search.</div>'; return; }
+  el.innerHTML=list.map(x=>`<div class="hitem"><div class="grow"><div><b>${esc(histName(x))}</b></div><div><small>${new Date(x.date).toLocaleDateString()} · ${x.offline?"offline":esc(x.settings.provider||"AI")} · ${x.score!=null?x.score+"/100":"no score"} · ${x.files.length} file(s) · ${fmtBytes(x.bytes||0)}</small></div></div><button class="btn sm" data-open="${x.id}">Open</button><button class="btn sm" data-zip="${x.id}" title="Download .zip">⬇</button><button class="btn sm ${pendingDel===String(x.id)?"danger":""}" data-del="${x.id}" title="Delete">${pendingDel===String(x.id)?"Tap again to delete":"✕"}</button></div>`).join("");
+  el.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>{ const x=histCache.find(y=>String(y.id)===b.dataset.open); if(x) openHist(x); });
+  el.querySelectorAll("[data-zip]").forEach(b=>b.onclick=()=>{ const x=histCache.find(y=>String(y.id)===b.dataset.zip); if(!x) return; const z=zipSkill(x); download(z.name+".zip",z.blob); });
+  el.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>deleteHist(b.dataset.del));
+}
+function exportAll(){
+  if(!histCache.length){ toast("No saved skills yet"); return; }
+  const enc=new TextEncoder(), entries=[], used={};
+  histCache.forEach(x=>{ let n=histName(x); used[n]=(used[n]||0)+1; if(used[n]>1) n+="-"+used[n]; x.files.forEach(f=>entries.push({name:`${n}/${f.path}`,data:enc.encode(f.content)})); });
+  const d=new Date(); download(`skillforge-all-skills-${d.toISOString().slice(0,10)}.zip`, makeZip(entries));
+  toast(`Downloaded ${histCache.length} skill(s)`);
 }
 function setMode(m){
   state.mode=m; store("sf_mode",m);
@@ -2285,7 +2391,9 @@ const HELP=`<div class="md">
    ============================================================ */
 function init(){
   $("ver").textContent=VERSION;
-  renderPipe(); renderHist();
+  renderPipe(); loadHist();
+  $("histSearch").addEventListener("input",renderHist);
+  $("exportAll").onclick=exportAll;
   $("examples").innerHTML=EXAMPLES.map(e=>`<span class="chip">${esc(e.length>46?e.slice(0,44)+"…":e)}</span>`).join("");
   $("examples").querySelectorAll(".chip").forEach((c,i)=>c.onclick=()=>{$("brief").value=EXAMPLES[i];$("brief").focus();updateDetect();});
   const seg=(id,key)=>$(id).querySelectorAll("button").forEach(b=>b.onclick=()=>{ $(id).querySelectorAll("button").forEach(x=>x.classList.remove("on")); b.classList.add("on"); state[key]= key==="depth"?Number(b.dataset.v):b.dataset.v; });
