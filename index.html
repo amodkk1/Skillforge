@@ -268,6 +268,10 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding:16px 10px 26p
         <button class="btn sm" id="promptBtn" title="No API key? Copy one master prompt to paste into Claude, ChatGPT or Gemini chat">📋 No key? Copy master prompt</button>
       </div>
       <div class="err-box" id="errBox"></div>
+      <div class="imp" id="resumeBox" style="display:none;margin-top:10px;border-color:#5d4a1f">
+        <div id="resumeMsg"></div>
+        <div class="actions" style="margin-top:8px"><button class="btn sm teal" id="resumeBtn">↻ Resume</button><button class="btn sm" id="discardBtn">Discard</button></div>
+      </div>
     </div>
 
     <div class="card" style="margin-top:18px">
@@ -282,6 +286,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding:16px 10px 26p
       <h2>Deep-thinking pipeline</h2>
       <div class="pipe" id="pipe"></div>
       <div class="console" id="console"><span class="me">› Ready.</span> Enter a brief and press “Forge skill”.</div>
+      <div class="hint" id="awakeHint">Tip: keep SkillForge open while it runs — the screen stays on automatically. If the connection drops, finished steps are saved and you can resume.</div>
       <div class="statusbar"><span>Step: <b id="stStep">—</b></span><span>Elapsed: <b id="stTime">0s</b></span><span>Output so far: <b id="stChars">0</b> chars</span></div>
     </div>
 
@@ -1314,7 +1319,7 @@ function buildOffline(s, answers){
 </script>
 <script>
 "use strict";
-const VERSION = "v1.3.1";
+const VERSION = "v1.3.2";
 
 /* ============================================================
    PROMPTS — the "deep thinking" engine
@@ -1594,6 +1599,7 @@ async function readSSE(resp, onEvent){
 }
 
 function baseUrl(cfg){ return (cfg.provider==="custom"||cfg.provider==="ollama" ? (cfg.base||PROV[cfg.provider].base) : PROV[cfg.provider].base).replace(/\/+$/,""); }
+function waitVisible(signal){ return new Promise((res,rej)=>{ if(!document.hidden) return res(); const f=()=>{ if(!document.hidden){ document.removeEventListener("visibilitychange",f); res(); } }; document.addEventListener("visibilitychange",f); if(signal) signal.addEventListener("abort",()=>{ document.removeEventListener("visibilitychange",f); rej(new DOMException("Aborted","AbortError")); },{once:true}); }); }
 const sleep=(ms,signal)=>new Promise((res,rej)=>{ const t=setTimeout(res,ms); if(signal) signal.addEventListener("abort",()=>{clearTimeout(t);rej(new DOMException("Aborted","AbortError"));},{once:true}); });
 
 async function callLLM(cfg, prompt, onText, signal){
@@ -1604,6 +1610,11 @@ async function callLLM(cfg, prompt, onText, signal){
     catch(e){
       if(e.name==="AbortError" || attempt>=4) throw e;
       const st=e.status||0, msg=(e.message||"").toLowerCase();
+      if(!st && (e.name==="TypeError" || /network|failed to fetch|load failed|connection|err_/.test(msg))){
+        if(document.hidden){ log("⏸ Connection dropped while SkillForge was in the background — will retry when you return to the app…"); await waitVisible(signal); }
+        log(`↻ Connection dropped — retrying this step (${attempt}/3)…`);
+        await sleep(3000*attempt,signal); continue;
+      }
       if(st===400 && tok>4000 && /token|max_|output|too large|exceed|limit/.test(msg)){
         tok=Math.max(4000,Math.floor(tok/2)); log(`↻ The model refused that output length — retrying with ${tok.toLocaleString()} tokens.`); continue;
       }
@@ -1797,29 +1808,61 @@ async function forge(){
   showErr("");
   if(s.brief.length<8){ showErr("Please write a brief of at least a few words describing the agent."); $("brief").focus(); return; }
   if(state.mode==="offline") return forgeOffline(s);
-  if(!s.key && PROV[s.provider].key && !PROV[s.provider].optionalKey){ showErr("Add your API key (section 2), or use “No key? Copy master prompt” to run it in any AI chat."); $("modelBox").open=true; $("apikey").focus(); return; }
-  if(s.provider==="custom" && !s.base){ showErr("Enter the server address (base URL) for your custom provider."); $("baseUrl").focus(); return; }
-  if(!s.model){ showErr("Choose a model — press “↻ Load all models” to see what your key can use."); return; }
-  persistSettings();
-  startRun();
-  const r={id:Date.now(),date:new Date().toISOString(),settings:{brief:s.brief,ctx:s.ctx,depth:s.depth,pkg:s.pkg,provider:s.provider,model:s.model},analysis:"",design:"",files:[],reviews:[]};
+  if(!checkAI(s)) return;
+  persistSettings(); clearPartial();
+  const r={id:Date.now(),date:new Date().toISOString(),settings:{brief:s.brief,ctx:s.ctx,depth:s.depth,pkg:s.pkg,provider:s.provider,model:s.model},analysis:"",design:"",files:[],reviews:[],loopsDone:0,pendingCrit:null,finalDone:false};
   state.result=r;
+  await runPipeline(s,r,false);
+}
+function checkAI(s){
+  if(!s.key && PROV[s.provider].key && !PROV[s.provider].optionalKey){ setMode("ai"); showErr("Add your API key (section 2), or use “No key? Copy master prompt” to run it in any AI chat."); $("modelBox").open=true; $("apikey").focus(); return false; }
+  if(s.provider==="custom" && !s.base){ showErr("Enter the server address (base URL) for your custom provider."); $("baseUrl").focus(); return false; }
+  if(!s.model){ showErr("Choose a model — press “↻ Load all models” to see what your key can use."); return false; }
+  return true;
+}
+async function runPipeline(s,r,resuming){
+  startRun(); hideResume();
   try{
-    log(`Provider: ${s.provider} · Model: ${s.model} · Depth: ${s.depth} loop(s) · Package: ${s.pkg}`);
-    r.analysis=await step(s,"analysis","Thinking through the domain like an expert",pAnalysis(s));
+    log(`${resuming?"↻ Resuming — ":""}Provider: ${s.provider} · Model: ${s.model} · Depth: ${s.depth} loop(s) · Package: ${s.pkg}`);
+    if(!r.analysis){
+      r.analysis=await step(s,"analysis","Thinking through the domain like an expert",pAnalysis(s)); savePartial(r);
+    }
     setStage("analysis","done","✓ "+r.analysis.length.toLocaleString()+" chars"); renderOut();
-
-    r.design=await step(s,"design","Designing the skill architecture",pDesign(s,r.analysis));
+    if(!r.design){
+      r.design=await step(s,"design","Designing the skill architecture",pDesign(s,r.analysis)); savePartial(r);
+    }
     setStage("design","done","✓ designed"); renderOut();
-
-    const draft=await step(s,"draft","Writing the full skill package",pDraft(s,r.analysis,r.design));
-    r.files=ensureFrontmatter(parseFiles(draft),s);
+    if(!r.files.length){
+      const draft=await step(s,"draft","Writing the full skill package",pDraft(s,r.analysis,r.design));
+      r.files=ensureFrontmatter(parseFiles(draft),s); savePartial(r);
+    }
     setStage("draft","done",`✓ ${r.files.length} file(s)`); renderOut();
-
     await runLoops(s,r,s.depth);
-    finish(r);
-  }catch(e){ handleErr(e); }
+    clearPartial(); finish(r);
+  }catch(e){ handleErr(e); if(r.analysis){ savePartial(r); showResume(r); } }
   finally{ endRun(); }
+}
+
+/* ---------- saving an unfinished run so it can be resumed ---------- */
+function savePartial(r){ try{ localStorage.setItem("sf_partial",JSON.stringify(r)); }catch(e){} }
+function clearPartial(){ unstore("sf_partial"); }
+function loadPartial(){ try{ return JSON.parse(load("sf_partial")||"null"); }catch(e){ return null; } }
+function stoppedAt(r){ return !r.design?"Architecture":!r.files.length?"Full draft":"Review ↔ refine"+(r.settings.depth?` (loop ${Math.min(r.loopsDone+1,r.settings.depth)} of ${r.settings.depth})`:""); }
+function showResume(r){
+  $("resumeMsg").innerHTML=`⚠ Unfinished run saved — <b>${esc(getFrontmatter((r.files[0]||{content:""}).content).name||r.settings.brief.slice(0,60))}</b>. Stopped at: ${esc(stoppedAt(r))}. Finished steps are kept, so Resume continues from there. You can switch provider or model first if you need to.`;
+  $("resumeBox").style.display="block";
+}
+function hideResume(){ $("resumeBox").style.display="none"; }
+async function resumeRun(){
+  const r=loadPartial()||state.result; if(!r){ hideResume(); return; }
+  const s=readSettings();
+  Object.assign(s,{brief:r.settings.brief,ctx:r.settings.ctx,pkg:r.settings.pkg,depth:r.settings.depth});
+  $("brief").value=r.settings.brief; $("ctx").value=r.settings.ctx||"";
+  if(state.mode!=="ai") setMode("ai");
+  if(!checkAI(s)) return;
+  showErr(""); state.result=r;
+  renderPipe(); $("console").innerHTML="";
+  await runPipeline(s,r,true);
 }
 
 function getAnswers(){ const o={}; ["audience","format","tone","standards","include","avoid","tools","length"].forEach(k=>o[k]=$("q_"+k).value.trim()); return o; }
@@ -1848,27 +1891,36 @@ async function forgeOffline(s){
 }
 
 async function runLoops(s,r,n){
-  for(let i=1;i<=n;i++){
-    const lbl=`loop ${i}/${n}: expert review`;
-    setStage("loops","run",lbl);
-    const crit=await step(s,"loops",lbl,pCritique(s,packageText(r.files)));
-    const c=parseCritique(crit); c.round=r.reviews.length+1;
-    r.reviews.push(c); renderOut();
-    log(`Review ${c.round}: score ${c.overall??"n/a"}/100 — ${c.verdict||""}`);
-    if(c.overall!==null && c.overall>=s.target){ log(`✓ Target score ${s.target} reached — stopping early.`); setStage("loops","done",`✓ ${c.overall}/100`); return; }
+  r.loopsDone=r.loopsDone||0;
+  for(let i=r.loopsDone+1;i<=n;i++){
+    let c=r.pendingCrit;
+    if(!c){
+      const lbl=`loop ${i}/${n}: expert review`;
+      setStage("loops","run",lbl);
+      const crit=await step(s,"loops",lbl,pCritique(s,packageText(r.files)));
+      c=parseCritique(crit); c.round=r.reviews.length+1;
+      r.reviews.push(c); renderOut();
+      log(`Review ${c.round}: score ${c.overall??"n/a"}/100 — ${c.verdict||""}`);
+      if(c.overall!==null && c.overall>=s.target){ log(`✓ Target score ${s.target} reached — stopping early.`); r.loopsDone=n; r.finalDone=true; savePartial(r); setStage("loops","done",`✓ ${c.overall}/100`); return; }
+      r.pendingCrit=c; savePartial(r);
+    }
     const lbl2=`loop ${i}/${n}: rewriting`;
     const refined=await step(s,"loops",lbl2,pRefine(s,r.analysis,packageText(r.files),c.raw));
     const nf=ensureFrontmatter(parseFiles(refined),s);
     if(nf[0].content.length < r.files[0].content.length*0.45){ log("⚠ Rewrite looked truncated — kept the previous version."); }
     else { r.files=nf; r.refined=(r.refined||0)+1; }
+    r.loopsDone=i; r.pendingCrit=null; savePartial(r);
     renderOut();
   }
-  // final score check after last rewrite
-  const lbl=`final review`;
-  const crit=await step(s,"loops",lbl,pCritique(s,packageText(r.files)));
-  const c=parseCritique(crit); c.round=r.reviews.length+1; c.final=true; r.reviews.push(c);
-  log(`Final review: score ${c.overall??"n/a"}/100`);
-  setStage("loops","done",`✓ ${c.overall??"done"}${c.overall!=null?"/100":""}`);
+  if(!r.finalDone){
+    const lbl=`final review`;
+    const crit=await step(s,"loops",lbl,pCritique(s,packageText(r.files)));
+    const c=parseCritique(crit); c.round=r.reviews.length+1; c.final=true; r.reviews.push(c);
+    r.finalDone=true; savePartial(r);
+    log(`Final review: score ${c.overall??"n/a"}/100`);
+  }
+  const last=r.reviews[r.reviews.length-1];
+  setStage("loops","done",`✓ ${last&&last.overall!=null?last.overall+"/100":"done"}`);
 }
 
 async function moreLoop(){
@@ -1893,7 +1945,16 @@ async function moreLoop(){
   finally{ endRun(); state.mode=wasMode; }
 }
 
+let wakeLock=null;
+async function keepAwake(on){
+  try{
+    if(on && "wakeLock" in navigator && !wakeLock && document.visibilityState==="visible"){ wakeLock=await navigator.wakeLock.request("screen"); wakeLock.addEventListener("release",()=>{ wakeLock=null; }); }
+    if(!on && wakeLock){ await wakeLock.release(); wakeLock=null; }
+  }catch(e){ wakeLock=null; }
+}
+document.addEventListener("visibilitychange",()=>{ if(state.running && document.visibilityState==="visible") keepAwake(true); });
 function startRun(keepStages){
+  keepAwake(true);
   state.running=true; state.abort=new AbortController();
   $("goBtn").disabled=true; $("stopBtn").disabled=false; $("moreBtn").disabled=true;
   if(!keepStages){ renderPipe(); $("console").innerHTML=""; }
@@ -1901,13 +1962,14 @@ function startRun(keepStages){
   state.timer=setInterval(()=>{ const s=Math.round((Date.now()-state.t0)/1000); $("stTime").textContent= s>=60? `${Math.floor(s/60)}m ${s%60}s` : s+"s"; },1000);
 }
 function endRun(){
+  keepAwake(false);
   state.running=false; $("goBtn").disabled=false; $("stopBtn").disabled=true; $("moreBtn").disabled=false;
   clearInterval(state.timer);
 }
 function handleErr(e){
   liveEnd();
   const msg = e.name==="AbortError" ? "Stopped." : (e.message||String(e));
-  const corsHint = /Failed to fetch|NetworkError|Load failed/i.test(msg) ? "\nNetwork/CORS problem: check your internet connection. If you opened the file inside a restricted viewer, open it directly in Chrome/Edge instead." : "";
+  const corsHint = /Failed to fetch|NetworkError|Load failed|network error/i.test(msg) ? "\nThe connection dropped (weak signal, a network change, or the phone put the app to sleep). Your finished steps are saved — press “↻ Resume” to continue." : "";
   log("✖ "+msg+corsHint);
   STAGES.forEach(s=>{ const el=$("stg-"+s.id); if(el&&el.classList.contains("run")) setStage(s.id,"err",e.name==="AbortError"?"stopped":"error"); });
   if(e.name!=="AbortError") showErr(msg+corsHint);
@@ -2254,6 +2316,9 @@ function init(){
   $("goBtn").onclick=forge;
   $("stopBtn").onclick=()=>{ if(state.abort) state.abort.abort(); };
   $("moreBtn").onclick=moreLoop;
+  $("resumeBtn").onclick=resumeRun;
+  $("discardBtn").onclick=()=>{ clearPartial(); hideResume(); toast("Unfinished run discarded"); };
+  { const pr=loadPartial(); if(pr && pr.analysis){ state.result=pr; renderOut(); showResume(pr); } }
   document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{ state.tab=t.dataset.t; if(state.result) renderOut(); else document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x===t)); });
   $("copyBtn").onclick=()=>state.result&&copy(state.result.files[0].content);
   $("dlMd").onclick=()=>state.result&&download("SKILL.md",state.result.files[0].content,"text/markdown");
