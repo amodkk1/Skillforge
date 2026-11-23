@@ -1174,14 +1174,14 @@ function buildOffline(s, answers){
   let desc = `${cap(task)}. Acts as ${art(P.role)} ${P.role}${domainBit}, following an expert workflow with built-in quality checks. Use this skill whenever the user asks to ${triggers.slice(0,8).join(", ")}` +
     (A.primary.hits.length? `, or mentions ${uniq(A.primary.hits.concat(doms.flatMap((d,i)=>A.doms[i].hits))).slice(0,6).join(", ")}`:"") +
     `, even if they do not name this skill.` + (notFor.length? ` Not for ${notFor.join("; ")}.`:"");
-  desc = desc.replace(/\s+/g," ").replace(/"/g,"'");
+  desc = desc.replace(/\s+/g," ");
   if(desc.length>1000) desc=desc.slice(0,997).replace(/\s\S*$/,"")+"…";
 
   const L=[]; const push=(...x)=>L.push(...x);
   const refLink=(file,what)=> single? "" : ` Read \`${R}${file}\` ${what}.`;
 
   /* ---------- SKILL.md ---------- */
-  push("---",`name: ${name}`,`description: ${desc}`,"---","",`# ${title}`,"");
+  push("---",`name: ${name}`,`description: ${yamlString(desc)}`,"---","",`# ${title}`,"");
   push("## Purpose",`You are ${art(P.role)} ${P.role}${domainBit}.`,`**Your brief:** ${cap(task)}.`,`Success means: ${P.outcome}.`+(audience?` Primary audience: ${audience}.`:""),"");
   push("## When to use this skill","Use it when the user asks to:",...triggers.map(t=>`- ${t}`),"");
   if(notFor.length) push("Do **not** use it for: "+notFor.join("; ")+".","");
@@ -1334,7 +1334,7 @@ function buildOffline(s, answers){
 </script>
 <script>
 "use strict";
-const VERSION = "v1.4.0";
+const VERSION = "v1.4.1";
 
 /* ============================================================
    PROMPTS — the "deep thinking" engine
@@ -1763,26 +1763,52 @@ function parseFiles(text){
 }
 function packageText(files){ return files.map(f=>`<<<FILE: ${f.path}>>>\n${f.content.trim()}\n<<<END FILE>>>`).join("\n\n"); }
 
+/* ---------- frontmatter: read leniently, always write strict YAML ---------- */
+function splitFrontmatter(md){
+  const m=String(md).replace(/^\uFEFF/,"").match(/^\s*---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/);
+  return m ? {raw:m[1], body:String(md).replace(/^\uFEFF/,"").slice(m.index+m[0].length)} : {raw:null, body:String(md)};
+}
+function unquoteYaml(v){
+  v=v.trim();
+  if(/^".*"$/.test(v)) return v.slice(1,-1).replace(/\\(["\\\/bfnrt])/g,(m,c)=>({b:"\b",f:"\f",n:" ",r:"",t:" "}[c]||c));
+  if(/^'.*'$/.test(v)) return v.slice(1,-1).replace(/''/g,"'");
+  return v;
+}
 function getFrontmatter(md){
-  const m=md.match(/^\s*---\s*\n([\s\S]*?)\n---/);
-  const o={};
-  if(m){ m[1].split("\n").forEach(l=>{ const k=l.match(/^(\w[\w-]*):\s*(.*)$/); if(k) o[k[1]]=k[2].replace(/^["']|["']$/g,"").trim(); }); }
+  const {raw}=splitFrontmatter(md), o={};
+  if(raw==null) return o;
+  const lines=raw.split(/\r?\n/);
+  for(let i=0;i<lines.length;i++){
+    const k=lines[i].match(/^([A-Za-z_][\w-]*):[ \t]*(.*)$/); if(!k) continue;
+    let v=k[2];
+    if(/^[|>][+-]?\s*$/.test(v)){                       // block scalar: description: >  (indented lines follow)
+      const buf=[]; while(i+1<lines.length && (/^\s+\S/.test(lines[i+1])||!lines[i+1].trim())){ buf.push(lines[++i].trim()); }
+      v=buf.join(" ");
+    } else {
+      while(i+1<lines.length && /^\s+\S/.test(lines[i+1]) && !/^([A-Za-z_][\w-]*):/.test(lines[i+1].trim())){ v+=" "+lines[++i].trim(); }  // wrapped plain value
+      v=unquoteYaml(v);
+    }
+    o[k[1]]=v.replace(/\s+/g," ").trim();
+  }
   return o;
 }
+function yamlString(v){ return '"'+String(v).replace(/\\/g,"\\\\").replace(/"/g,'\\"').replace(/[\u0000-\u001f]/g," ")+'"'; }
+// Rebuild SKILL.md so the frontmatter is valid YAML for every importer (Claude, Copilot, others):
+// only `name` (lowercase-hyphen) and `description` (one quoted line, ≤ 1024 chars).
+function normalizeSkillMd(md, fallbackName, fallbackDesc){
+  const fm=getFrontmatter(md), {body}=splitFrontmatter(md);
+  const name=slugify(fm.name||fallbackName||"agent-skill");
+  let desc=(fm.description||fallbackDesc||"Use this skill for the task described in its instructions.").replace(/\s+/g," ").trim();
+  if(desc.length>1024) desc=desc.slice(0,1021).replace(/\s\S*$/,"")+"…";
+  return `---\nname: ${name}\ndescription: ${yamlString(desc)}\n---\n\n${body.replace(/^\s+/,"").replace(/\s+$/,"")}\n`;
+}
+function exportFiles(r){ return r.files.map(f=>f.path==="SKILL.md"?{...f,content:normalizeSkillMd(f.content)}:f); }
 function slugify(s){ return (s||"agent-skill").toLowerCase().replace(/claude|anthropic/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,64)||"agent-skill"; }
 
 function ensureFrontmatter(files, s){
-  const sk=files[0]; const fm=getFrontmatter(sk.content);
-  if(!fm.name || !fm.description){
-    const name=slugify(fm.name||s.brief.split(/\s+/).slice(0,6).join(" "));
-    const desc=(fm.description||("Use this skill when the user asks for: "+s.brief)).replace(/\n/g," ").slice(0,1000);
-    const body=sk.content.replace(/^\s*---\s*\n[\s\S]*?\n---\s*\n?/,"");
-    sk.content=`---\nname: ${name}\ndescription: ${desc}\n---\n\n${body.trim()}\n`;
-    log("ℹ Added missing frontmatter to SKILL.md.");
-  } else {
-    const clean=slugify(fm.name);
-    if(clean!==fm.name){ sk.content=sk.content.replace(/^(\s*---\s*\n[\s\S]*?)name:\s*.*$/m,`$1name: ${clean}`); }
-  }
+  const sk=files[0], fm=getFrontmatter(sk.content);
+  if(!fm.name || !fm.description) log("ℹ Added missing name/description to SKILL.md.");
+  sk.content=normalizeSkillMd(sk.content, s.brief.split(/\s+/).slice(0,6).join(" "), "Use this skill when the user asks for help with " + s.brief.replace(/\s+/g," ").slice(0,900));
   return files;
 }
 
@@ -2026,7 +2052,7 @@ function renderOut(){
     const f=r.files.find(f=>f.path===state.activeFile);
     out.innerHTML=`<div class="files"><div class="flist">${r.files.map(x=>`<button class="fitem ${x.path===state.activeFile?"on":""}" data-f="${esc(x.path)}">${esc(x.path)}<small>${x.content.split("\n").length} lines · ${(x.content.length/1024).toFixed(1)} KB</small></button>`).join("")}<button class="btn sm" id="dlOne" style="margin-top:6px">⬇ Download this file</button></div><div class="md">${md(f.content)}</div></div>`;
     out.querySelectorAll(".fitem").forEach(b=>b.onclick=()=>{state.activeFile=b.dataset.f;renderOut();});
-    $("dlOne").onclick=()=>download(f.path.split("/").pop(),f.content,"text/markdown");
+    $("dlOne").onclick=()=>download(f.path.split("/").pop(),f.path==="SKILL.md"?normalizeSkillMd(f.content):f.content,"text/markdown");
     return;
   }
   out.innerHTML=`<div class="md">${md(r.files[0].content)}</div>`;
@@ -2135,8 +2161,8 @@ function makeZip(entries){ // entries: [{name, data:Uint8Array}]
   return new Blob([...parts,...central,new Uint8Array(end.buffer)],{type:"application/zip"});
 }
 function zipSkill(r){
-  const enc=new TextEncoder(); const name=getFrontmatter(r.files[0].content).name||"agent-skill";
-  return {name, blob:makeZip(r.files.map(f=>({name:`${name}/${f.path}`,data:enc.encode(f.content)})))};
+  const enc=new TextEncoder(); const files=exportFiles(r); const name=getFrontmatter(files[0].content).name||"agent-skill";
+  return {name, blob:makeZip(files.map(f=>({name:`${name}/${f.path}`,data:enc.encode(f.content)})))};
 }
 
 /* ============================================================
@@ -2245,7 +2271,7 @@ function renderHist(){
 function exportAll(){
   if(!histCache.length){ toast("No saved skills yet"); return; }
   const enc=new TextEncoder(), entries=[], used={};
-  histCache.forEach(x=>{ let n=histName(x); used[n]=(used[n]||0)+1; if(used[n]>1) n+="-"+used[n]; x.files.forEach(f=>entries.push({name:`${n}/${f.path}`,data:enc.encode(f.content)})); });
+  histCache.forEach(x=>{ let n=histName(x); used[n]=(used[n]||0)+1; if(used[n]>1) n+="-"+used[n]; exportFiles(x).forEach(f=>entries.push({name:`${n}/${f.path}`,data:enc.encode(f.content)})); });
   const d=new Date(); download(`skillforge-all-skills-${d.toISOString().slice(0,10)}.zip`, makeZip(entries));
   toast(`Downloaded ${histCache.length} skill(s)`);
 }
@@ -2428,8 +2454,8 @@ function init(){
   $("discardBtn").onclick=()=>{ clearPartial(); hideResume(); toast("Unfinished run discarded"); };
   { const pr=loadPartial(); if(pr && pr.analysis){ state.result=pr; renderOut(); showResume(pr); } }
   document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{ state.tab=t.dataset.t; if(state.result) renderOut(); else document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x===t)); });
-  $("copyBtn").onclick=()=>state.result&&copy(state.result.files[0].content);
-  $("dlMd").onclick=()=>state.result&&download("SKILL.md",state.result.files[0].content,"text/markdown");
+  $("copyBtn").onclick=()=>state.result&&copy(normalizeSkillMd(state.result.files[0].content));
+  $("dlMd").onclick=()=>state.result&&download("SKILL.md",normalizeSkillMd(state.result.files[0].content),"text/markdown");
   $("dlZip").onclick=()=>{ if(!state.result) return; const z=zipSkill(state.result); download(z.name+".zip",z.blob); };
   $("helpBtn").onclick=()=>modal("How it works",HELP);
   $("mClose").onclick=()=>$("modalBg").style.display="none";
